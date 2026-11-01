@@ -90,8 +90,12 @@ class CoreConfig {
   static const String modeGlobal = 'Global';
   static const String modeCaptureRule = 'CaptureRule';
   static const String modeCaptureGlobal = 'CaptureGlobal';
+  static const List<String> modes = [modeRule, modeGlobal, modeCaptureRule, modeCaptureGlobal];
 
-  /// 模式写成 clash mode，规则和全局、解密开和关都不用重载，已有连接不受影响
+  /// 模式写成 clash mode，规则和全局、解密开和关都不用重载，已有连接不受影响。
+  ///
+  /// sing-box 会把模式存进缓存文件，下次启动时恢复，所以每次启动后都要重新设置一遍，
+  /// 否则可能恢复成解密模式，而这时 RsProxy 并没有运行。
   static String clashModeOf(RouteMode mode, {required bool capture}) => switch ((mode, capture)) {
         (RouteMode.rule, false) => modeRule,
         (RouteMode.rule, true) => modeCaptureRule,
@@ -113,7 +117,8 @@ class CoreConfig {
           'secret': options.clashSecret,
           'default_mode': options.clashDefaultMode,
         },
-        'cache_file': {'enabled': true, 'path': options.cachePath},
+        // 假 IP 映射要留下来：内核重启后，应用手里缓存的还是旧的假 IP
+        'cache_file': {'enabled': true, 'path': options.cachePath, 'store_fakeip': true},
       },
     };
   }
@@ -230,6 +235,8 @@ class CoreConfig {
         {'action': 'sniff'},
         {'protocol': 'dns', 'action': 'hijack-dns'},
         {'ip_is_private': true, 'action': 'route', 'outbound': _tagDirect},
+        // sing-box 只接受规则里出现过的模式，其他名字会被悄悄忽略。这几条本身不起作用，只为声明模式
+        for (final mode in modes) {'clash_mode': mode, 'ip_is_private': true, 'action': 'route', 'outbound': _tagDirect},
         for (final mode in [modeCaptureRule, modeCaptureGlobal]) ..._mitmRules(mode, frontDoors, options.mitmDomains),
         for (final mode in [modeGlobal, modeCaptureGlobal])
           {'clash_mode': mode, 'action': 'route', 'outbound': _tagSelect},

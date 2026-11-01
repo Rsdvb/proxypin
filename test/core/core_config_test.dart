@@ -47,6 +47,14 @@ void main() {
     expect(CoreConfig.clashModeOf(RouteMode.global, capture: true), CoreConfig.modeCaptureGlobal);
   });
 
+  test('every mode is declared, because sing-box silently ignores any other', () {
+    for (final domains in [const ['example.com'], const <String>[], null]) {
+      final rules = _rules(CoreConfig.build(_options(mitmDomains: domains)));
+      final declared = rules.map((e) => e['clash_mode']).whereType<String>().toSet();
+      expect(declared, containsAll(CoreConfig.modes), reason: 'with decryption list $domains');
+    }
+  });
+
   test('decrypted traffic cannot loop back into the decryption port', () {
     final rules = _rules(CoreConfig.build(_options(tun: true)));
     final toMitm = rules.where((e) => e['outbound'] == 'rs-mitm').toList();

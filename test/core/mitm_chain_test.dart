@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:proxypin/core/clash_api.dart';
 import 'package:proxypin/core/core_config.dart';
 import 'package:proxypin/network/bin/configuration.dart';
 import 'package:proxypin/network/bin/listener.dart';
@@ -186,14 +187,10 @@ void main() {
   }, skip: skip, timeout: const Timeout(Duration(seconds: 30)));
 
   test('turning capture off needs no reload and takes decryption out of the path', () async {
-    final client = HttpClient();
-    final request = await client.patchUrl(Uri.parse('http://127.0.0.1:$clashPort/configs'));
-    request.headers.set(HttpHeaders.authorizationHeader, 'Bearer chain-secret');
-    request.write(jsonEncode({'mode': CoreConfig.modeRule}));
-    final response = await request.close();
-    await response.drain();
-    client.close(force: true);
-    expect(response.statusCode, 204);
+    final api = ClashApi(port: clashPort, secret: 'chain-secret');
+    addTearDown(api.close);
+    await api.setMode(CoreConfig.modeRule);
+    expect(await api.mode(), CoreConfig.modeRule, reason: 'sing-box must have accepted the switch');
 
     final body = await fetch('/passthrough');
 
