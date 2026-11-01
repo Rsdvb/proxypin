@@ -9,7 +9,8 @@ class RelayHandler extends ChannelHandler<Object> {
   @override
   Future<void> channelRead(ChannelContext channelContext, Channel channel, Object msg) async {
     //发送给客户端
-    remoteChannel.write(channelContext, msg);
+    await remoteChannel.write(channelContext, msg);
+    await remoteChannel.throttle(channel);
   }
 
   @override

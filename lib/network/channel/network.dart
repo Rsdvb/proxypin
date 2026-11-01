@@ -49,7 +49,7 @@ abstract class Network {
     _channelInitializer.call(channel);
     channel.dispatcher.channelActive(channelContext, channel);
 
-    channel.socket.listen((data) => onEvent(data, channelContext, channel),
+    channel.readSubscription = channel.socket.listen((data) => onEvent(data, channelContext, channel),
         onError: (error, StackTrace trace) =>
             channel.dispatcher.exceptionCaught(channelContext, channel, error, trace: trace),
         onDone: () => channel.dispatcher.channelInactive(channelContext, channel));

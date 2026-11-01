@@ -17,6 +17,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:proxypin/network/channel/channel_context.dart';
 import 'package:proxypin/network/channel/host_port.dart';
@@ -52,9 +53,15 @@ abstract class ChannelHandler<T> {
 
 ///与网络套接字或组件的连接，能够进行读、写、连接和绑定等I/O操作。
 class Channel {
+  /// 待写出的数据超过该字节数时，暂停读取数据来源，等写出后再恢复
+  static const int writeHighWaterMark = 2 * 1024 * 1024;
+
   final int _id;
   final ChannelDispatcher dispatcher = ChannelDispatcher();
   Socket _socket;
+  StreamSubscription<Uint8List>? _readSubscription;
+  int _unflushedBytes = 0;
+  Future<void>? _flushing;
 
   //是否打开
   bool isOpen = true;
@@ -77,6 +84,9 @@ class Channel {
   late final String id = _id.toRadixString(36);
 
   Socket get socket => _socket;
+
+  /// 当前读取 [socket] 的订阅，[throttle] 通过它暂停读取
+  set readSubscription(StreamSubscription<Uint8List> subscription) => _readSubscription = subscription;
 
   void serverSecureSocket(SecureSocket secureSocket, ChannelContext channelContext) {
     _socket = secureSocket;
@@ -133,6 +143,11 @@ class Channel {
       logger.w("[$id] $remoteSocketAddress channel is closed", stackTrace: StackTrace.current);
     }
 
+    // flush 期间 socket 不接受写入
+    while (_flushing != null) {
+      await _flushing;
+    }
+
     //只能有一个写入
     int retry = 0;
     while (isWriting && retry++ < 30) {
@@ -147,6 +162,7 @@ class Channel {
     try {
       if (!isClosed) {
         _socket.add(bytes);
+        _unflushedBytes += bytes.length;
       }
     } catch (e, t) {
       if (e is StateError && e.message == "StreamSink is closed") {
@@ -156,6 +172,39 @@ class Channel {
       }
     } finally {
       isWriting = false;
+    }
+  }
+
+  /// 本通道写不过来时暂停读取 [source]，等已写入的数据写出后恢复。
+  /// socket 写入没有上限，快的一端读多少就在内存里堆多少，大文件遇到慢客户端会撑爆内存。
+  Future<void> throttle(Channel source) async {
+    if (_unflushedBytes < writeHighWaterMark || isClosed) {
+      return;
+    }
+
+    source._readSubscription?.pause();
+    try {
+      await _flush();
+    } finally {
+      source._readSubscription?.resume();
+    }
+  }
+
+  Future<void> _flush() async {
+    while (_flushing != null) {
+      await _flushing;
+    }
+
+    final done = Completer<void>();
+    _flushing = done.future;
+    try {
+      await _socket.flush();
+    } catch (_) {
+      // 连接已断开，关闭流程由读事件一侧处理
+    } finally {
+      _flushing = null;
+      _unflushedBytes = 0;
+      done.complete();
     }
   }
 
@@ -177,6 +226,10 @@ class Channel {
       await Future.delayed(const Duration(milliseconds: 150));
     }
     isOpen = false;
+    // flush 期间 socket 不接受关闭
+    while (_flushing != null) {
+      await _flushing;
+    }
     // if (!isWriting) {
     //   await _socket.flush();
     // }

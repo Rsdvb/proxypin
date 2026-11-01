@@ -57,7 +57,7 @@ class ChannelDispatcher extends ChannelHandler<Uint8List> {
       channel.dispatcher.exceptionCaught(channelContext, channel, error, trace: trace);
       return null;
     });
-    channel.socket.listen((data) => channel.dispatcher.channelRead(channelContext, channel, data),
+    channel.readSubscription = channel.socket.listen((data) => channel.dispatcher.channelRead(channelContext, channel, data),
         onError: (error, trace) => channel.dispatcher.exceptionCaught(channelContext, channel, error, trace: trace),
         onDone: () => channel.dispatcher.channelInactive(channelContext, channel));
   }
