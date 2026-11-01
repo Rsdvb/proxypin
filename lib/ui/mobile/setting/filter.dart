@@ -22,6 +22,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:proxypin/l10n/app_localizations.dart';
 import 'package:flutter_toastr/flutter_toastr.dart';
+import 'package:proxypin/native/vpn.dart';
 import 'package:proxypin/network/bin/configuration.dart';
 import 'package:proxypin/network/util/logger.dart';
 import 'package:proxypin/ui/component/domain_add_dialog.dart';
@@ -102,6 +103,9 @@ class _DomainFilterState extends State<DomainFilter> {
   void dispose() {
     if (changed) {
       widget.configuration.flushConfig();
+      if (widget.hostList is Whites) {
+        Vpn.refreshProxyDomains(widget.configuration);
+      }
     }
     super.dispose();
   }

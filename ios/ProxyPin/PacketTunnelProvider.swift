@@ -107,7 +107,10 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             proxySettings.exceptionList = pass
         }
 
-        proxySettings.matchDomains = [""]
+        // Only these domain suffixes reach the proxy; everything else bypasses the app.
+        // An empty string matches every host.
+        let proxyDomains = conf["proxyDomains"] as? [String] ?? []
+        proxySettings.matchDomains = proxyDomains.isEmpty ? [""] : proxyDomains
         networkSettings.proxySettings =  proxySettings
 
         networkSettings.ipv4Settings = ipv4Settings

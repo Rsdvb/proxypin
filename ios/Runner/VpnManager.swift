@@ -18,6 +18,7 @@ class VpnManager{
     public var proxyPort: Int = 9099
     public var ipProxy: Bool = false
     public var proxyPassDomains: [String]?
+    public var proxyDomains: [String]?
 
     static let shared = VpnManager()
     var observerAdded: Bool = false
@@ -108,6 +109,9 @@ extension VpnManager{
             if let passDomains = self.proxyPassDomains {
                 conf["proxyPassDomains"] = passDomains as NSArray
             }
+            if let proxyDomains = self.proxyDomains {
+                conf["proxyDomains"] = proxyDomains as NSArray
+            }
 
             let orignConf = manager.protocolConfiguration as! NETunnelProviderProtocol
  
@@ -152,11 +156,12 @@ extension VpnManager{
 // Actions
 extension VpnManager{
     
-    func connect(host: String?, port: Int?, ipProxy: Bool? = false, proxyPassDomains: [String]? = nil) {
+    func connect(host: String?, port: Int?, ipProxy: Bool? = false, proxyPassDomains: [String]? = nil, proxyDomains: [String]? = nil) {
         self.proxyHost = host ?? self.proxyHost
         self.proxyPort = port ?? self.proxyPort
         self.ipProxy = ipProxy ?? false
         self.proxyPassDomains = proxyPassDomains ?? self.proxyPassDomains
+        self.proxyDomains = proxyDomains ?? self.proxyDomains
 
         self.loadAndCreatePrividerManager { (manager) in
             guard let manager = manager else{return}
@@ -169,7 +174,7 @@ extension VpnManager{
         }
     }
     
-    func restartConnect(host: String?, port: Int?, ipProxy: Bool? = false, proxyPassDomains: [String]? = nil) {
+    func restartConnect(host: String?, port: Int?, ipProxy: Bool? = false, proxyPassDomains: [String]? = nil, proxyDomains: [String]? = nil) {
         self.proxyHost = host ?? self.proxyHost
         self.proxyPort = port ?? self.proxyPort
         self.ipProxy = ipProxy ?? false
@@ -179,7 +184,7 @@ extension VpnManager{
             activeVPN = nil
         }
         
-        self.connect(host: host, port: port, ipProxy: ipProxy, proxyPassDomains: proxyPassDomains)
+        self.connect(host: host, port: port, ipProxy: ipProxy, proxyPassDomains: proxyPassDomains, proxyDomains: proxyDomains)
     }
 
     func disconnect() {

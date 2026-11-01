@@ -43,6 +43,30 @@ class HostFilter {
     }
     return false;
   }
+
+  static final RegExp _plainDomain = RegExp(r'^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$');
+
+  /// 白名单对应的域名后缀，用于在系统层分流，不在其中的连接不必进入代理。
+  ///
+  /// 白名单未启用或为空时返回 null；有规则不能表示成域名后缀（如正则）时也返回 null，
+  /// 此时只能全部进入代理再过滤，否则这些规则匹配的请求就抓不到了。
+  static List<String>? whitelistDomains() {
+    if (!whitelist.enabled || whitelist.list.isEmpty) {
+      return null;
+    }
+
+    final domains = <String>{};
+    for (final rule in whitelist.list) {
+      // add() 把 * 展开成了 .*，这里还原 *.example.com 的写法
+      final pattern = rule.pattern;
+      final domain = pattern.startsWith('.*.') ? pattern.substring(3) : pattern;
+      if (!_plainDomain.hasMatch(domain)) {
+        return null;
+      }
+      domains.add(domain);
+    }
+    return domains.toList();
+  }
 }
 
 ///
