@@ -2,6 +2,7 @@
 
 #include <windows.h>
 
+#include <csignal>
 #include <cstdlib>
 #include <exception>
 #include <string>
@@ -174,7 +175,44 @@ static DWORD WINAPI DialogThreadProc(LPVOID p) {
   return 0;
 }
 
+// Appends the report to %LOCALAPPDATA%\<app>\crash.log. The dialog disappears
+// with the process, and nothing here reaches the Windows event log, so without
+// this a crash leaves no evidence behind.
+static void WriteCrashLog(const std::wstring& msg) {
+  wchar_t base[MAX_PATH] = {};
+  const DWORD n = ::GetEnvironmentVariableW(L"LOCALAPPDATA", base, MAX_PATH);
+  if (n == 0 || n >= MAX_PATH) return;
+
+  const std::wstring dir = std::wstring(base) + L"\\" + g_app_name;
+  ::CreateDirectoryW(dir.c_str(), nullptr);
+
+  const std::wstring path = dir + L"\\crash.log";
+  HANDLE file = ::CreateFileW(path.c_str(), FILE_APPEND_DATA, FILE_SHARE_READ, nullptr, OPEN_ALWAYS,
+                              FILE_ATTRIBUTE_NORMAL, nullptr);
+  if (file == INVALID_HANDLE_VALUE) return;
+
+  SYSTEMTIME now = {};
+  ::GetLocalTime(&now);
+  wchar_t stamp[64];
+  std::swprintf(stamp, 64, L"\r\n==== %04d-%02d-%02d %02d:%02d:%02d ====\r\n", static_cast<int>(now.wYear),
+                static_cast<int>(now.wMonth), static_cast<int>(now.wDay), static_cast<int>(now.wHour),
+                static_cast<int>(now.wMinute), static_cast<int>(now.wSecond));
+
+  const std::wstring text = stamp + msg;
+  const int bytes = ::WideCharToMultiByte(CP_UTF8, 0, text.c_str(), static_cast<int>(text.size()), nullptr, 0,
+                                          nullptr, nullptr);
+  if (bytes > 0) {
+    std::string utf8(bytes, '\0');
+    ::WideCharToMultiByte(CP_UTF8, 0, text.c_str(), static_cast<int>(text.size()), &utf8[0], bytes, nullptr, nullptr);
+    DWORD written = 0;
+    ::WriteFile(file, utf8.data(), static_cast<DWORD>(utf8.size()), &written, nullptr);
+  }
+  ::CloseHandle(file);
+}
+
 static void ShowAsyncAndFreeze(const std::wstring& title, const std::wstring& msg) {
+  WriteCrashLog(msg);
+
   // Allocate payload on heap; crashing thread's stack may be corrupted.
   DialogPayload* payload = new DialogPayload{title, msg};
 
@@ -325,17 +363,13 @@ static LONG WINAPI SehFilter(EXCEPTION_POINTERS* ep) {
   return EXCEPTION_EXECUTE_HANDLER;
 }
 
-static void TerminateHandler() {
-  if (::InterlockedCompareExchange(&g_in_handler, 1, 0) != 0) {
-    std::abort();
-  }
-
+static void ReportFatal(const wchar_t* reason) {
   std::wstring title = g_app_name + L" crashed";
 
   std::wstring msg;
   msg.reserve(2048);
-  msg += L"std::terminate called (likely an uncaught C++ exception).\r\n";
-  msg += L"ProcessId: ";
+  msg += reason;
+  msg += L"\r\nProcessId: ";
   AppendU64(msg, L"", ::GetCurrentProcessId());
   msg += L"\r\nThreadId: ";
   AppendU64(msg, L"", ::GetCurrentThreadId());
@@ -344,9 +378,31 @@ static void TerminateHandler() {
   AppendStack(msg);
 
   ShowAsyncAndFreeze(title, msg);
+}
+
+static void TerminateHandler() {
+  if (::InterlockedCompareExchange(&g_in_handler, 1, 0) != 0) {
+    std::abort();
+  }
+
+  ReportFatal(L"std::terminate called (likely an uncaught C++ exception).");
 
   // We generally won't reach here.
   std::abort();
+}
+
+// The Dart VM and the Flutter engine abort() on fatal errors such as running out
+// of memory. That bypasses the unhandled exception filter, so without this the
+// process just vanishes.
+static void AbortHandler(int) {
+  if (::InterlockedCompareExchange(&g_in_handler, 1, 0) != 0) {
+    TerminateNow();
+  }
+
+  ReportFatal(L"abort() called (fatal error in the engine or a native library, for example out of memory).");
+
+  // We generally won't reach here.
+  TerminateNow();
 }
 
 static std::wstring GetExeDir() {
@@ -487,6 +543,9 @@ void Install(const wchar_t* app_name) {
 
   ::SetUnhandledExceptionFilter(SehFilter);
   std::set_terminate(TerminateHandler);
+
+  ::_set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
+  std::signal(SIGABRT, AbortHandler);
 }
 
 }  // namespace crash_handler
