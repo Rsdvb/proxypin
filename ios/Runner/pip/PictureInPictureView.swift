@@ -9,8 +9,18 @@ import SwiftUI
 
 @available(iOS 13.0, *)
 class DataSource: ObservableObject {
+    // 每个请求一条，不设上限时列表和 VStack 重建开销都会随抓包时长无限增长
+    private static let maxItems = 100
+
     @Published var list: [String] = []
-    
+
+    func add(_ text: String) {
+        list.append(text)
+        if list.count > Self.maxItems {
+            list.removeFirst(list.count - Self.maxItems)
+        }
+    }
+
     func clear() {
         list.removeAll()
     }
@@ -46,7 +56,7 @@ struct PictureInPictureView: View {
     }
     
         func addData(text: String) {
-            dataSource.list.append(text);
+            dataSource.add(text)
         }
 }
 //

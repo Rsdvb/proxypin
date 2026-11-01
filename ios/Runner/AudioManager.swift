@@ -6,9 +6,8 @@ class AudioManager: NSObject {
     static let shared = AudioManager()
     fileprivate let audioSession = AVAudioSession.sharedInstance()
     fileprivate var backgroundAudioPlayer: AVAudioPlayer?
-    fileprivate var backgroundTimeLength = 0
-    fileprivate var timer: Timer?
-    
+    fileprivate var backgroundEnteredAt: Date?
+
     static let audioName = ""
     // 是否开启后台自动播放无声音乐
     var openBackgroundAudioAutoplay = false {
@@ -68,7 +67,7 @@ class AudioManager: NSObject {
 extension AudioManager {
     /// 进入后台 播放无声音乐
     @objc public func didEnterBackground() {
-        self.setupTimer()
+        self.backgroundEnteredAt = Date()
         guard self.openBackgroundAudioAutoplay else {return}
         
         do {
@@ -82,9 +81,8 @@ extension AudioManager {
     
     /// 进入前台，暂停播放音乐
     @objc public func didBecomeActive() {
-        self.removeTimer()
         self.hintBackgroundTimeLength()
-        self.backgroundTimeLength = 0
+        self.backgroundEnteredAt = nil
         guard self.openBackgroundAudioAutoplay else {return}
         
         self.backgroundAudioPlayer?.pause()
@@ -125,23 +123,11 @@ extension AudioManager {
     }
 }
 
-// MARK: - 扩展 定时器任务
+// MARK: - 扩展 后台时长
 extension AudioManager {
-    fileprivate func setupTimer() {
-        self.removeTimer()
-        self.timer = Timer.scheduledTimer(timeInterval: 1, target: self, selector: #selector(timerTask), userInfo: nil, repeats: true)
-        RunLoop.main.add(self.timer!, forMode: RunLoop.Mode.common)
-//         RunLoop.main.add(self.timer!, forMode: RunLoop.Mode.init(rawValue: ""))
-    }
-    fileprivate func removeTimer() {
-        self.timer?.invalidate()
-        self.timer = nil;
-    }
-    @objc func timerTask() {
-        self.backgroundTimeLength += 1
-    }
     fileprivate func hintBackgroundTimeLength() {
-        let message = "本次后台持续时间:\(self.backgroundTimeLength)s"
+        guard let enteredAt = self.backgroundEnteredAt else {return}
+        let message = "本次后台持续时间:\(Int(Date().timeIntervalSince(enteredAt)))s"
         print(message)
     }
 }
