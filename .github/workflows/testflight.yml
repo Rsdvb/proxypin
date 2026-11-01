@@ -8,8 +8,13 @@ name: TestFlight
 #   ASC_KEY_ID            API key ID
 #   ASC_ISSUER_ID         Issuer ID
 #   ASC_KEY_P8            Contents of the .p8 file
+#
+# Runs on a testflight-* tag: a manual trigger only works for workflows on the default
+# branch, and this one lives on a feature branch.
 on:
   workflow_dispatch:
+  push:
+    tags: ['testflight-*']
 
 permissions:
   contents: read
@@ -23,6 +28,19 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 90
     steps:
+      - name: Check the secrets are set
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          for name in APPLE_TEAM_ID ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_P8; do
+            if [ -z "${!name}" ]; then
+              echo "::error::missing secret $name"
+              exit 1
+            fi
+          done
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
         with:
