@@ -94,6 +94,8 @@ def declared(bundle):
     """Categories the bundle's own manifests declare, including its resource bundles."""
     categories = set()
     for manifest in bundle.rglob('PrivacyInfo.xcprivacy'):
+        if {'Frameworks', 'PlugIns'} & set(manifest.relative_to(bundle).parts):
+            continue
         data = plistlib.loads(manifest.read_bytes())
         for entry in data.get('NSPrivacyAccessedAPITypes', []):
             categories.add(entry['NSPrivacyAccessedAPIType'])
@@ -117,17 +119,16 @@ def check_purposes(app, binaries):
     return problems
 
 
-def check_reasons(owner, binaries):
-    """The owner's manifest covers everything in it; a framework may also declare its own."""
+def check_reasons(binaries):
+    """Apple wants the manifest in the bundle that holds the binary, so each answers for itself."""
     problems = []
-    covered = declared(owner)
     for binary in binaries:
         symbols = references(binary)
         wanted = {category for symbol, category in REASONS.items() if symbol in symbols}
-        own = declared(binary.parent) if binary.parent != owner else set()
-        print(f'{binary.relative_to(owner.parent)}: {sorted(wanted) or "-"}; own manifest {sorted(own) or "-"}')
-        for category in sorted(wanted - covered - own):
-            problems.append(f'{binary.name} uses {category}, declared nowhere')
+        have = declared(binary.parent)
+        print(f'{binary.parent.name}: uses {sorted(wanted) or "-"}; declares {sorted(have) or "-"}')
+        for category in sorted(wanted - have):
+            problems.append(f'{binary.name} uses {category}, not declared in {binary.parent.name}')
     return problems
 
 
@@ -156,10 +157,9 @@ def main():
         problems.append(f'{tunnel.name} embeds a Frameworks folder')
 
     frameworks = sorted((app / 'Frameworks').glob('*.framework'))
-    binaries = [binary_of(app)] + [binary_of(framework) for framework in frameworks]
-    problems += check_purposes(app, binaries + [binary_of(tunnel)])
-    problems += check_reasons(app, binaries)
-    problems += check_reasons(tunnel, [binary_of(tunnel)])
+    binaries = [binary_of(app), binary_of(tunnel)] + [binary_of(framework) for framework in frameworks]
+    problems += check_purposes(app, binaries)
+    problems += check_reasons(binaries)
     if '--signed' in sys.argv:
         problems += check_signature(app, tunnel)
 

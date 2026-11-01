@@ -1,3 +1,5 @@
-"NSCameraUsageDescription"="Scan QR code";
-"NSPhotoLibraryUsageDescription"="Access to Photo Library";
-"PhotoLibraryAddUsageDescription"= "Save image to Photo Library";
+"NSCameraUsageDescription"="Scan a QR code to import a configuration.";
+"NSMicrophoneUsageDescription"="RsProxy does not record audio. The camera component used for QR scanning requires this declaration.";
+"NSPhotoLibraryAddUsageDescription"="Save a QR code image to your photo library.";
+"NSPhotoLibraryUsageDescription"="Choose a QR code image to import a configuration.";
+"NSLocalNetworkUsageDescription"="Share the proxy and sync settings with devices on this network.";

@@ -61,9 +61,13 @@
 		<true/>
 	</dict>
 	<key>NSCameraUsageDescription</key>
-	<string>Scan QR code</string>
+	<string>Scan a QR code to import a configuration.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>RsProxy does not record audio. The camera component used for QR scanning requires this declaration.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Save a QR code image to your photo library.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Access to Photo Library</string>
+	<string>Choose a QR code image to import a configuration.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UIBackgroundModes</key>
@@ -92,6 +96,6 @@
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<false/>
     <key>NSLocalNetworkUsageDescription</key>
-    <string>Remote Device Connect</string>
+    <string>Share the proxy and sync settings with devices on this network.</string>
 </dict>
 </plist>

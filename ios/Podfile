@@ -63,6 +63,12 @@ post_install do |installer|
       config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
     end
 
+    # Apple wants the manifest in the bundle that holds the binary, and this plugin has none
+    if target.name == 'code_forge'
+      manifest = File.expand_path('code_forge/PrivacyInfo.xcprivacy', File.dirname(__FILE__))
+      target.add_resources([installer.pods_project.new_file(manifest)])
+    end
+
     # Specifically fix AFNetworking module
     if target.name == 'AFNetworking'
       target.build_configurations.each do |config|

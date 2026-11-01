@@ -1,3 +1,5 @@
-"NSCameraUsageDescription"="扫描二维码";
-"NSPhotoLibraryUsageDescription"="访问相册";
-"PhotoLibraryAddUsageDescription"= "保存图片到相册";
+"NSCameraUsageDescription"="扫描二维码来导入配置";
+"NSMicrophoneUsageDescription"="RsProxy 不会录音，这一项是二维码扫描所用的相机组件要求声明的";
+"NSPhotoLibraryAddUsageDescription"="把二维码图片保存到相册";
+"NSPhotoLibraryUsageDescription"="从相册选择二维码图片来导入配置";
+"NSLocalNetworkUsageDescription"="和局域网内的设备共享代理、同步设置";
