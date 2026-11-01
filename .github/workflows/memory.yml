@@ -1,0 +1,53 @@
+name: Memory
+
+# Measures what each configuration choice costs, on the architecture iOS uses.
+# Results land in the run summary. Started by pushing a memory-* tag.
+on:
+  workflow_dispatch:
+  push:
+    tags: ['memory-*']
+
+permissions:
+  contents: read
+
+env:
+  FLUTTER_VERSION: 3.47.9
+  SING_BOX_VERSION: 1.14.4
+
+jobs:
+  measure:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: false
+      - run: flutter pub get
+      - name: Write configurations
+        env:
+          MEMORY_CONFIG_OUT: build/memory
+        run: |
+          flutter test test/core/memory_configs_test.dart
+          bash tool/fetch_rule_sets.sh build/memory/rules
+      - name: Build sing-box the way the app does
+        run: |
+          mkdir -p "$RUNNER_TEMP/src" build/bin
+          curl -fsSL --retry 3 "https://github.com/SagerNet/sing-box/archive/refs/tags/v$SING_BOX_VERSION.tar.gz" |
+            tar -xz -C "$RUNNER_TEMP/src" --strip-components=1
+          flags="-X github.com/sagernet/sing-box/constant.Version=$SING_BOX_VERSION -X runtime.godebugDefault=multipathtcp=0,tlssha1=1 -checklinkname=0 -s -w -buildid="
+          build() {
+            (cd "$RUNNER_TEMP/src" && go build -trimpath -tags "$2,with_low_memory,badlinkname,tfogo_checklinkname0,grpcnotrace" -ldflags "$flags" -o "$GITHUB_WORKSPACE/build/bin/$1" ./cmd/sing-box)
+          }
+          build current with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_clash_api
+          build no-wireguard with_gvisor,with_quic,with_dhcp,with_utls,with_clash_api
+          build no-gvisor with_quic,with_dhcp,with_wireguard,with_utls,with_clash_api
+          ls -la build/bin
+      - name: Measure
+        run: python3 tool/measure_memory.py build/memory build/bin/current build/bin/no-wireguard build/bin/no-gvisor
