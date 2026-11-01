@@ -22,7 +22,10 @@ class EditRuleGroupPage extends StatefulWidget {
   /// 其他组的名称，不能重名
   final Set<String> otherNames;
 
-  const EditRuleGroupPage({super.key, this.group, this.otherNames = const {}});
+  /// 从连接列表带来的内容：字段 -> 值，追加到已有内容后面
+  final Map<String, String> prefill;
+
+  const EditRuleGroupPage({super.key, this.group, this.otherNames = const {}, this.prefill = const {}});
 
   @override
   State<EditRuleGroupPage> createState() => _EditRuleGroupPageState();
@@ -64,6 +67,12 @@ class _EditRuleGroupPageState extends State<EditRuleGroupPage> {
   late final Set<String> _chosenProtocols = {...?_group?.protocols};
   late final Set<String> _chosenNetworkTypes = {...?_group?.networkTypes};
   late bool _matchOr = _group?.matchOr ?? false;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.prefill.forEach(_append);
+  }
 
   bool _filled(List<String> keys) => keys.any((key) => _text[key]!.text.isNotEmpty);
 

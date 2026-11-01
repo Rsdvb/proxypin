@@ -27,7 +27,41 @@ class CoreConnection {
   final int download;
   final DateTime? start;
 
-  const CoreConnection(this.id, this.host, this.network, this.rule, this.chains, this.upload, this.download, this.start);
+  /// 域名，内核不知道时为空
+  final String domain;
+
+  /// 目标 IP
+  final String destination;
+  final String port;
+  final String sourceIp;
+  final String sourcePort;
+
+  /// 发起连接的程序。iOS 上拿不到
+  final String processPath;
+
+  const CoreConnection(
+    this.id,
+    this.host,
+    this.network,
+    this.rule,
+    this.chains,
+    this.upload,
+    this.download,
+    this.start, {
+    this.domain = '',
+    this.destination = '',
+    this.port = '',
+    this.sourceIp = '',
+    this.sourcePort = '',
+    this.processPath = '',
+  });
+
+  String get source => sourceIp.contains(':') ? '[$sourceIp]:$sourcePort' : '$sourceIp:$sourcePort';
+
+  String get processName => processPath.split(RegExp(r'[\\/]')).last;
+
+  /// 内核的规则文本是“条件 => 动作”，只留条件
+  String get ruleName => rule.split('=>').first.trim();
 
   factory CoreConnection.fromJson(Map<String, dynamic> json) {
     final metadata = (json['metadata'] as Map?)?.cast<String, dynamic>() ?? const {};
@@ -43,6 +77,13 @@ class CoreConnection {
       (json['upload'] as num?)?.toInt() ?? 0,
       (json['download'] as num?)?.toInt() ?? 0,
       DateTime.tryParse(json['start']?.toString() ?? ''),
+      domain: host,
+      destination: destination,
+      port: port,
+      sourceIp: metadata['sourceIP']?.toString() ?? '',
+      sourcePort: metadata['sourcePort']?.toString() ?? '',
+      // Linux 上内核会在后面加“ (用户)”
+      processPath: (metadata['processPath']?.toString() ?? '').replaceFirst(RegExp(r' \(.*\)$'), ''),
     );
   }
 }
@@ -53,7 +94,10 @@ class ConnectionSnapshot {
   final int downloadTotal;
   final List<CoreConnection> connections;
 
-  const ConnectionSnapshot(this.uploadTotal, this.downloadTotal, this.connections);
+  /// 内核占用的内存，字节
+  final int memory;
+
+  const ConnectionSnapshot(this.uploadTotal, this.downloadTotal, this.connections, {this.memory = 0});
 }
 
 /// 实时速度（字节/秒）
@@ -151,6 +195,7 @@ class ClashApi {
       (json['uploadTotal'] as num?)?.toInt() ?? 0,
       (json['downloadTotal'] as num?)?.toInt() ?? 0,
       (json['connections'] as List?)?.map((e) => CoreConnection.fromJson((e as Map).cast())).toList() ?? const [],
+      memory: (json['memory'] as num?)?.toInt() ?? 0,
     );
   }
 
