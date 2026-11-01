@@ -86,6 +86,8 @@ class Server extends Network {
   Future<ServerSocket> bind(int port) async {
     serverSocket = await ServerSocket.bind(InternetAddress.anyIPv4, port);
     serverSubscription = serverSocket.listen((socket) {
+      // 与上游连接一致关闭 Nagle，避免小包与客户端延迟 ACK 叠加造成停顿
+      socket.setOption(SocketOption.tcpNoDelay, true);
       var channel = Channel(socket);
       _connections.add(channel);
 
@@ -144,6 +146,12 @@ class Server extends Network {
 
   @override
   Future<void> onEvent(Uint8List data, ChannelContext channelContext, Channel channel) async {
+    // 已进入裸转发的连接，后续读事件无需再判定协议，也不用重建转发处理器
+    if (channel.dispatcher.isRawRelay) {
+      channel.dispatcher.channelRead(channelContext, channel, data);
+      return;
+    }
+
     //手机扫码转发远程地址
     if (configuration.remoteHost != null) {
       channelContext.putAttribute(AttributeKeys.remote, HostAndPort.of(configuration.remoteHost!));

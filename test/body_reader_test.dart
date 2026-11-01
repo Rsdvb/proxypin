@@ -105,6 +105,36 @@ void main() {
       expect(r2.isDone, isTrue);
       expect(utf8.decode(r2.body!), 'hello world');
     });
+
+    test('response over the buffering limit falls back to relay on first read', () {
+      final r = BodyReader(_fixedResponse(Codec.maxBodyLength + 1));
+      final result = r.readBody(_b('hello'));
+      expect(result.supportedParse, isFalse);
+      expect(result.isDone, isFalse);
+      expect(utf8.decode(result.body!), 'hello');
+    });
+
+    test('response exactly at the buffering limit is still parsed', () {
+      final r = BodyReader(_fixedResponse(Codec.maxBodyLength));
+      final result = r.readBody(_b('hello'));
+      expect(result.supportedParse, isTrue);
+      expect(result.isDone, isFalse);
+    });
+
+    test('request over the buffering limit keeps being parsed', () {
+      final request = HttpRequest(HttpMethod.post, '/upload');
+      request.headers.contentLength = Codec.maxBodyLength + 1;
+      final result = BodyReader(request).readBody(_b('hello'));
+      expect(result.supportedParse, isTrue);
+    });
+
+    test('chunked response ignores a bogus Content-Length', () {
+      final resp = _chunkedResponse();
+      resp.headers.contentLength = Codec.maxBodyLength + 1;
+      final result = BodyReader(resp).readBody(_b('5\r\nhello\r\n0\r\n\r\n'));
+      expect(result.supportedParse, isTrue);
+      expect(result.isDone, isTrue);
+    });
   });
 
   group('BodyReader close-delimited detection (issue #844)', () {

@@ -68,6 +68,9 @@ class BodyReader {
         !msg.headers.contentType.startsWith('text/event-stream');
   }
 
+  bool get _isOversizedResponse =>
+      message is HttpResponse && _chunkedDecoder == null && message.contentLength > Codec.maxBodyLength;
+
   Result readBody(Uint8List data) {
     if (_bodyBuffer.length > Codec.maxBodyLength) {
       _bodyBuffer.clear();
@@ -76,6 +79,12 @@ class BodyReader {
 
     if (message.headers.contentType == 'video/x-flv' || message.headers.contentType.startsWith("text/event-stream")) {
       //Directly forward without processing for now
+      return Result(false, supportedParse: false, body: data);
+    }
+
+    // Content-Length 已超上限的响应迟早回退 raw relay，不必先攒满缓冲再转发，
+    // 否则大文件下载要等到 4M 才收到首字节。
+    if (_isOversizedResponse) {
       return Result(false, supportedParse: false, body: data);
     }
 

@@ -74,7 +74,7 @@ class Channel {
         remoteSocketAddress = InetSocketAddress(_socket.remoteAddress, _socket.remotePort);
 
   ///返回此channel的全局唯一标识符。
-  String get id => _id.toRadixString(36);
+  late final String id = _id.toRadixString(36);
 
   Socket get socket => _socket;
 

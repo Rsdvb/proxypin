@@ -46,6 +46,9 @@ class ChannelDispatcher extends ChannelHandler<Uint8List> {
     handle(codec, codec, handler);
   }
 
+  /// 是否已切换为裸转发：之后的字节不再解析，原样写给对端
+  bool get isRawRelay => handler is RelayHandler && decoder is RawCodec;
+
   /// 监听
   void listen(Channel channel, ChannelContext channelContext) {
     buffer.clear();
@@ -95,6 +98,12 @@ class ChannelDispatcher extends ChannelHandler<Uint8List> {
 
   @override
   Future<void> channelRead(ChannelContext channelContext, Channel channel, Uint8List msg) async {
+    // 裸转发快路径：socket 读到的 msg 直接交给对端。经 buffer 转一道要多拷贝一次，
+    // 而且写出的是视图，socket 写入时还得再拷贝一次。
+    if (isRawRelay && !buffer.isReadable()) {
+      return handler.channelRead(channelContext, channel, msg);
+    }
+
     //同步注册: 在首个 await 之前登记, 保证 onDone(channelInactive) 触发时本次读事件已在集合中
     final pending = Completer<void>();
     _pendingReads.add(pending);
