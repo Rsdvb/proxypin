@@ -6,6 +6,10 @@ physical footprint (what jetsam looks at) while idle and under load, and prints 
 Markdown table. No TUN here, so a real tunnel adds its stack on top of these numbers.
 
 Usage: measure_memory.py <config dir> <binary> [<binary> ...]
+       measure_memory.py --limits <config> <binary>
+
+The second form runs one config with a range of Go memory settings, to find a limit
+that holds the peak down without giving up throughput.
 """
 import asyncio
 import json
@@ -18,6 +22,10 @@ import time
 
 CONNECTIONS = 200
 LOAD_SECONDS = 8
+
+# Go settings to compare: (GOMEMLIMIT, GOGC). The first is what libbox uses on iOS.
+LIMITS = [('40MiB', '50'), ('32MiB', '50'), ('26MiB', '50'), ('20MiB', '50'), ('32MiB', '25'), ('26MiB', '25')]
+LOADS = [50, 200]
 CHUNK = b'x' * (64 * 1024)
 
 
@@ -48,6 +56,9 @@ async def sink(reader, writer):
         writer.close()
 
 
+received = [0]
+
+
 async def client(proxy_port, target_port, stop):
     """One connection through the proxy, reading until told to stop."""
     try:
@@ -56,19 +67,21 @@ async def client(proxy_port, target_port, stop):
         await writer.drain()
         await reader.readuntil(b'\r\n\r\n')
         while not stop.is_set():
-            if not await reader.read(65536):
+            data = await reader.read(65536)
+            if not data:
                 break
+            received[0] += len(data)
         writer.close()
     except (OSError, asyncio.IncompleteReadError):
         pass
 
 
-async def load(proxy_port, pid):
-    """Peak footprint while CONNECTIONS connections are moving data."""
+async def load(proxy_port, pid, connections=CONNECTIONS):
+    """Peak footprint while the connections are moving data."""
     server = await asyncio.start_server(sink, '127.0.0.1', 0)
     target = server.sockets[0].getsockname()[1]
     stop = asyncio.Event()
-    tasks = [asyncio.create_task(client(proxy_port, target, stop)) for _ in range(CONNECTIONS)]
+    tasks = [asyncio.create_task(client(proxy_port, target, stop)) for _ in range(connections)]
 
     peak = 0.0
     deadline = time.monotonic() + LOAD_SECONDS
@@ -94,10 +107,10 @@ def wait_for_port(port, timeout=20):
     return False
 
 
-def measure(binary, config):
+def measure(binary, config, limit='40MiB', gogc='50', connections=CONNECTIONS):
     data = json.loads(config.read_text(encoding='utf-8'))
     port = next(e['listen_port'] for e in data['inbounds'] if e['tag'] == 'mixed-in')
-    environment = {**os.environ, 'GOGC': '50', 'GOMEMLIMIT': '40MiB'}
+    environment = {**os.environ, 'GOGC': gogc, 'GOMEMLIMIT': limit}
     process = subprocess.Popen([binary, 'run', '-c', config.name, '-D', '.'], cwd=config.parent, env=environment,
                                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
     try:
@@ -106,7 +119,7 @@ def measure(binary, config):
             return None, None, None, (process.stderr.read() or '')[-200:]
         time.sleep(3)
         idle = footprint(process.pid)
-        peak = asyncio.run(load(port, process.pid))
+        peak = asyncio.run(load(port, process.pid, connections))
         time.sleep(5)
         after = footprint(process.pid)
         return idle, peak, after, ''
@@ -115,7 +128,31 @@ def measure(binary, config):
         process.wait(timeout=10)
 
 
+def compare_limits(config, binary):
+    lines = [
+        '| GOMEMLIMIT | GOGC | connections | idle MB | peak MB | after MB | MB/s |',
+        '|---|---|---|---|---|---|---|',
+    ]
+    for limit, gogc in LIMITS:
+        for connections in LOADS:
+            received[0] = 0
+            idle, peak, after, error = measure(os.path.abspath(binary), config, limit, gogc, connections)
+            speed = received[0] / LOAD_SECONDS / (1 << 20)
+            row = f'| {limit} | {gogc} | {connections} | {idle} | {peak} | {after} | {speed:.1f} |'
+            lines.append(row if not error else f'{row} {error}')
+            print(lines[-1], flush=True)
+    return lines
+
+
 def main():
+    if sys.argv[1] == '--limits':
+        lines = compare_limits(pathlib.Path(sys.argv[2]), sys.argv[3])
+        summary = os.environ.get('GITHUB_STEP_SUMMARY')
+        if summary:
+            with open(summary, 'a', encoding='utf-8') as output:
+                output.write('\n'.join(lines) + '\n')
+        return
+
     directory = pathlib.Path(sys.argv[1])
     binaries = sys.argv[2:]
     lines = [
