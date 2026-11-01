@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:proxypin/core/core_manager.dart';
 import 'package:proxypin/core/core_tools.dart';
+import 'package:proxypin/core/rule_group.dart';
 import 'package:proxypin/network/components/host_filter.dart';
 
 import 'connect_page.dart';
@@ -77,7 +80,7 @@ class RuleCheckPage extends StatefulWidget {
 }
 
 class _RuleCheckPageState extends State<RuleCheckPage> {
-  final TextEditingController _domain = TextEditingController();
+  late final TextEditingController _domain = TextEditingController(text: CoreManager.instance.settings.ruleCheckDomain);
   bool _checking = false;
   String? _result;
 
@@ -90,12 +93,17 @@ class _RuleCheckPageState extends State<RuleCheckPage> {
   Future<void> _check() async {
     final manager = CoreManager.instance;
     final domain = _domain.text.trim().replaceFirst(RegExp(r'^https?://'), '').split('/').first;
-    if (domain.isEmpty) return;
+    if (!RuleChecks.isDomain(domain)) {
+      setState(() => _result = '无效的域名');
+      return;
+    }
 
     setState(() {
       _checking = true;
       _result = null;
     });
+    manager.settings.ruleCheckDomain = domain;
+    unawaited(manager.saveUiSettings());
     String result;
     try {
       final match = await CoreTools.matchRule(manager.api, manager.settings.upstreamPort, domain);
@@ -103,6 +111,7 @@ class _RuleCheckPageState extends State<RuleCheckPage> {
       result = match == null
           ? '没有查到结果'
           : '走 ${nodeLabel(match.outbound)}\n命中规则：${match.rule.isEmpty ? '默认' : match.rule}'
+              '${match.chain.length > 1 ? '\n路径：${match.chain.reversed.map(nodeLabel).join(' → ')}' : ''}'
               '${decrypted ? '\n这个域名会先经过解密' : ''}';
     } catch (e) {
       result = '检测失败：$e';

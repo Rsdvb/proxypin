@@ -45,6 +45,20 @@ jobs:
             echo "checking $config"
             "$SING_BOX_BIN" check -c "$config"
           done
+      - name: Start the routing configurations
+        # check does not start anything, so it cannot see an outbound cycle. timeout exits 124
+        # when the core is still up, which is what we want.
+        working-directory: build/core-config
+        run: |
+          for config in chain-front.json chain-behind.json rule-groups.json; do
+            echo "starting $config"
+            status=0
+            timeout 5 "$SING_BOX_BIN" run -c "$config" || status=$?
+            if [ "$status" != 124 ]; then
+              echo "::error::$config did not stay up"
+              exit 1
+            fi
+          done
 
   ios:
     runs-on: macos-latest

@@ -345,6 +345,9 @@ class CoreSettings {
   String testUrl;
   List<RuleGroup> groups;
 
+  /// 规则检测上次查的域名
+  String ruleCheckDomain;
+
   /// 分流都没命中时的去向
   String finalTarget;
 
@@ -410,6 +413,7 @@ class CoreSettings {
     this.hideDisabledGroups = false,
     this.testUrl = 'https://www.gstatic.com/generate_204',
     List<RuleGroup>? groups,
+    this.ruleCheckDomain = 'google.com',
     this.finalTarget = RuleTarget.selected,
     List<String>? chain,
     this.chainFront = true,
@@ -478,6 +482,7 @@ class CoreSettings {
         hideDisabledGroups: json['hideDisabledGroups'] ?? false,
         testUrl: json['testUrl'] ?? 'https://www.gstatic.com/generate_204',
         groups: (json['groups'] as List?)?.map((e) => RuleGroup.fromJson(e)).toList(),
+        ruleCheckDomain: json['ruleCheckDomain'] ?? 'google.com',
         finalTarget: json['finalTarget'] ?? RuleTarget.selected,
         chain: (json['chain'] as List?)?.map((e) => e.toString()).toList(),
         chainFront: json['chainFront'] ?? true,
@@ -523,6 +528,7 @@ class CoreSettings {
         'hideDisabledGroups': hideDisabledGroups,
         'testUrl': testUrl,
         'groups': groups,
+        'ruleCheckDomain': ruleCheckDomain,
         'finalTarget': finalTarget,
         'chain': chain,
         'chainFront': chainFront,

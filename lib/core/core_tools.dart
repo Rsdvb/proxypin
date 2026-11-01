@@ -13,7 +13,10 @@ class RuleMatch {
   /// 流量最终走的出站
   final String outbound;
 
-  const RuleMatch(this.rule, this.outbound);
+  /// 经过的出站，内核的顺序是最后一跳在前
+  final List<String> chain;
+
+  const RuleMatch(this.rule, this.outbound, {this.chain = const []});
 }
 
 /// 一项网络检测
@@ -97,7 +100,8 @@ class CoreTools {
         for (final connection in snapshot.connections) {
           if (connection.host == '$domain:$port') {
             await api.closeConnection(connection.id).catchError((_) {});
-            return RuleMatch(connection.rule, connection.chains.isEmpty ? '' : connection.chains.first);
+            return RuleMatch(connection.rule, connection.chains.isEmpty ? '' : connection.chains.first,
+                chain: connection.chains);
           }
         }
         await Future.delayed(const Duration(milliseconds: 100));
