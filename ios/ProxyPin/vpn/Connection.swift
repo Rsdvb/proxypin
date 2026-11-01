@@ -67,6 +67,14 @@ class Connection{
     //发送到客户端的下一个ack
     var sendNext: UInt32 = 0
 
+    //客户端窗口已满，暂停从目标读取，等客户端确认后恢复
+    var isReadPaused = false
+
+    //客户端当前还能接收的字节数。SYN-ACK 未协商窗口缩放，窗口字段就是字节数
+    var availableSendWindow: Int {
+        return Int(lastTcpHeader?.windowSize ?? 0) - Int(sendNext &- sendUnAck)
+    }
+
     static func tcpParameters() -> NWParameters {
         let tcpOptions = NWProtocolTCP.Options()
         tcpOptions.noDelay = true

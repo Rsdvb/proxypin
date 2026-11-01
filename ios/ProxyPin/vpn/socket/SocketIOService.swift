@@ -10,8 +10,8 @@ import NetworkExtension
 import os.log
 
 class SocketIOService {
-    // 单次读取上限
-    private static let maxReceiveBufferSize = Int(TCPPacketFactory.MAX_SEGMENT_SIZE)
+    // 单次读取上限，读到的数据按 MSS 分段后批量写回隧道
+    private static let maxReceiveBufferSize = 65535
 
     // 所有连接的回调都在这条串行队列上运行
     private let queue: DispatchQueue = DispatchQueue(label: "ProxyPin.SocketIOService", qos: .userInitiated)
@@ -118,7 +118,17 @@ class SocketIOService {
             return
         }
         
-        channel.receive(minimumIncompleteLength: 1, maximumLength: Self.maxReceiveBufferSize) { (data, context, isComplete, error) in
+        // 这里没有重传：超出客户端窗口的数据被丢弃后连接就卡死了。窗口满时先不读，等 ACK 恢复
+        let window = connection.withLock { () -> Int in
+            let window = connection.availableSendWindow
+            connection.isReadPaused = window <= 0
+            return window
+        }
+        guard window > 0 else {
+            return
+        }
+
+        channel.receive(minimumIncompleteLength: 1, maximumLength: min(window, Self.maxReceiveBufferSize)) { (data, context, isComplete, error) in
 //             os_log("[SocketIOService] Received TCP data packet %{public}@ length %d", log: OSLog.default, type: .default, connection.description, data?.count ?? -1)
             if let error = error {
                 os_log("Failed to read from TCP socket: %@", log: OSLog.default, type: .error, error as CVarArg)
@@ -140,6 +150,13 @@ class SocketIOService {
             }
 
             // Recursively call readTCP to continue reading messages
+            self.receiveMessage(connection: connection)
+        }
+    }
+
+    ///客户端窗口腾出空间后继续读取
+    func resumeRead(connection: Connection) {
+        queue.async {
             self.receiveMessage(connection: connection)
         }
     }

@@ -339,6 +339,12 @@ class ConnectionHandler {
         } else {
             os_log("%{public}@ Not accepting ack# %u, valid range: %u...%u", log: OSLog.default, type: .error, connection.description, ackNumber, connection.sendUnAck, connection.sendNext)
         }
+
+        // 窗口腾出空间后，恢复因窗口已满而暂停的读取
+        if connection.isReadPaused && connection.availableSendWindow > 0 {
+            connection.isReadPaused = false
+            ioService.resumeRead(connection: connection)
+        }
     }
     
     func sendAckForDisorder(ipHeader: IP4Header, tcpHeader: TCPHeader, acceptedDataLength: Int) {
