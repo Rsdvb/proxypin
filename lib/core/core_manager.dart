@@ -665,11 +665,12 @@ class CoreManager extends ChangeNotifier {
     if (activeProfile == null) {
       await setActiveProfile(profile.id);
     }
+    if (settings.autoBackupOnAdd) await _autoBackup();
     notifyListeners();
     return profile;
   }
 
-  /// 自动取的名称重复时加序号。用户自己填的重名会提示，不替他改
+  ///自动取的名称重复时加序号。用户自己填的重名会提示，不替他改
   String _uniqueName(String name) {
     var candidate = name;
     for (var index = 2; profiles.any((e) => e.name == candidate); index++) {
@@ -803,6 +804,7 @@ class CoreManager extends ChangeNotifier {
     await store.saveProfiles(profiles);
     await store.saveSettings(settings);
     if (wasActive) await _applyConfig();
+    if (settings.autoBackupOnRemove && profiles.isNotEmpty) await _autoBackup();
     notifyListeners();
   }
 
@@ -1056,35 +1058,71 @@ class CoreManager extends ChangeNotifier {
 
   Uint8List exportBackup() => CoreBackup.encode(BackupContent(profiles, settings, mitm.editableDomains));
 
-  /// 用备份替换配置、分流和解密名单，这台设备自己的端口和密钥不动
-  Future<void> restoreBackup(Uint8List bytes) async {
+  /// 用备份替换选中的内容，这台设备自己的端口和密钥不动。
+  /// 字段按名字分类，不列清单：以后加的设置不会悄悄漏掉
+  Future<void> restoreBackup(Uint8List bytes, {RestoreParts parts = const RestoreParts()}) async {
     final backup = CoreBackup.decode(bytes);
-    final restored = backup.settings;
-    profiles = backup.profiles;
+    final merged = jsonDecode(jsonEncode(settings)) as Map<String, dynamic>;
+    final incoming = jsonDecode(jsonEncode(backup.settingsJson)) as Map<String, dynamic>;
+    incoming.forEach((key, value) {
+      if (CoreBackup.deviceFields.contains(key)) return;
+      final wanted = CoreBackup.profileFields.contains(key)
+          ? parts.profiles
+          : (CoreBackup.ruleFields.contains(key) ? parts.rules : parts.others);
+      if (wanted) merged[key] = value;
+    });
+    settings = CoreSettings.fromJson(merged);
+
+    if (parts.profiles) {
+      profiles = backup.profiles;
+      delays.clear();
+      failedNodes.clear();
+    }
     _nodes = null;
-    settings
-      ..activeProfileId = restored.activeProfileId
-      ..selectedNodes = restored.selectedNodes
-      ..favorites = restored.favorites
-      ..userAgents = restored.userAgents
-      ..groups = restored.groups
-      ..mode = restored.mode
-      ..systemProxy = restored.systemProxy
-      ..ipStrategy = restored.ipStrategy
-      ..dns = restored.dns
-      ..tunSettings = restored.tunSettings
-      ..privateDirect = restored.privateDirect
-      ..groupsEnabled = restored.groupsEnabled
-      ..hideDisabledGroups = restored.hideDisabledGroups
-      ..providerRulesEnabled = restored.providerRulesEnabled
-      ..testUrl = restored.testUrl;
-    mitm.editableDomains = backup.decryptDomains;
-    delays.clear();
+    if (parts.rules) mitm.editableDomains = backup.decryptDomains;
     await store.saveProfiles(profiles);
     await store.saveSettings(settings);
     await _applyConfig();
     notifyListeners();
   }
+
+  static const int _autoBackupsKept = 5;
+
+  Directory get _autoBackupDirectory => Directory('${store.directory.path}/backups');
+
+  /// 一天一份，文件名就是日期，只留最近几份
+  Future<void> _autoBackup() async {
+    try {
+      final directory = _autoBackupDirectory;
+      await directory.create(recursive: true);
+      final name = DateTime.now().toIso8601String().substring(0, 10);
+      await File('${directory.path}/$name.zip').writeAsBytes(exportBackup());
+
+      final kept = await autoBackups();
+      for (final old in kept.skip(_autoBackupsKept)) {
+        await deleteAutoBackup(old.name);
+      }
+    } on Exception catch (e) {
+      logger.w('auto backup failed: $e');
+    }
+  }
+
+  /// 新的在前
+  Future<List<AutoBackup>> autoBackups() async {
+    final directory = _autoBackupDirectory;
+    if (!await directory.exists()) return const [];
+    final backups = <AutoBackup>[];
+    await for (final entry in directory.list()) {
+      if (entry is File && entry.path.endsWith('.zip')) {
+        backups.add(AutoBackup(entry.uri.pathSegments.last, await entry.length()));
+      }
+    }
+    return backups..sort((a, b) => b.name.compareTo(a.name));
+  }
+
+  Future<Uint8List> readAutoBackup(String name) => File('${_autoBackupDirectory.path}/$name').readAsBytes();
+
+  Future<void> deleteAutoBackup(String name) => File('${_autoBackupDirectory.path}/$name').delete();
 
   Future<void> saveWebDav({required String url, required String username, required String password}) async {
     settings

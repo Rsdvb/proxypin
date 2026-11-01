@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/services.dart';
 
@@ -64,6 +65,25 @@ class CoreTools {
       return match == null ? null : '${match.group(1)}.${match.group(2)}.${match.group(3)}.0/24';
     } on Exception {
       return null;
+    }
+  }
+
+  /// 下载一个文件，从 URL 恢复备份时用
+  static Future<Uint8List> downloadBytes(Uri uri, {String? proxy}) async {
+    final client = HttpClient()..connectionTimeout = _timeout;
+    if (proxy != null) client.findProxy = (_) => 'PROXY $proxy';
+    try {
+      final request = await client.getUrl(uri).timeout(_timeout);
+      final response = await request.close().timeout(_timeout);
+      if (response.statusCode != HttpStatus.ok) {
+        await response.drain<void>();
+        throw HttpException('download returned ${response.statusCode}', uri: uri);
+      }
+      final body = BytesBuilder(copy: false);
+      await response.timeout(_timeout).forEach(body.add);
+      return body.takeBytes();
+    } finally {
+      client.close(force: true);
     }
   }
 

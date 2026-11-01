@@ -500,6 +500,11 @@ class CoreSettings {
   String mixedUsername;
   String mixedPassword;
 
+  /// 添加配置后自动备份，换手机或误删时能找回来
+  bool autoBackupOnAdd;
+  bool autoBackupOnRemove;
+  DownloadStrategy webDavDownload;
+
   /// 首页显示的数字，按这个顺序
   List<String> homeStats;
 
@@ -601,6 +606,9 @@ class CoreSettings {
     this.lanPassword = '',
     this.mixedUsername = '',
     this.mixedPassword = '',
+    this.autoBackupOnAdd = true,
+    this.autoBackupOnRemove = false,
+    this.webDavDownload = DownloadStrategy.preferDirect,
     List<String>? homeStats,
     this.connectedAt,
     this.ruleCheckDomain = 'google.com',
@@ -696,6 +704,9 @@ class CoreSettings {
         lanPassword: json['lanPassword'] ?? '',
         mixedUsername: json['mixedUsername'] ?? '',
         mixedPassword: json['mixedPassword'] ?? '',
+        autoBackupOnAdd: json['autoBackupOnAdd'] ?? true,
+        autoBackupOnRemove: json['autoBackupOnRemove'] ?? false,
+        webDavDownload: DownloadStrategy.values.asNameMap()[json['webDavDownload']] ?? DownloadStrategy.preferDirect,
         homeStats: (json['homeStats'] as List?)?.map((e) => e.toString()).toList(),
         connectedAt: DateTime.tryParse(json['connectedAt'] ?? ''),
         ruleCheckDomain: json['ruleCheckDomain'] ?? 'google.com',
@@ -763,6 +774,9 @@ class CoreSettings {
         'lanPassword': lanPassword,
         'mixedUsername': mixedUsername,
         'mixedPassword': mixedPassword,
+        'autoBackupOnAdd': autoBackupOnAdd,
+        'autoBackupOnRemove': autoBackupOnRemove,
+        'webDavDownload': webDavDownload.name,
         'homeStats': homeStats,
         'connectedAt': connectedAt?.toIso8601String(),
         'ruleCheckDomain': ruleCheckDomain,

@@ -684,7 +684,10 @@ void main() {
       expect(available, isEmpty);
 
       gate.complete(_srs());
-      await Future.delayed(const Duration(milliseconds: 50));
+      final file = File('${root.path}/geosite-a.srs');
+      for (var attempt = 0; attempt < 200 && !file.existsSync(); attempt++) {
+        await Future.delayed(const Duration(milliseconds: 10));
+      }
       expect(await rules.prepare(['geosite-a']), {'geosite-a'});
     });
 
@@ -783,7 +786,10 @@ void main() {
         RuleGroup(id: 'a', name: 'a', ruleSets: ['geosite-bilibili'])
       ];
       await manager.connect();
-      await Future.delayed(const Duration(milliseconds: 50));
+      // 重试在后台跑，慢机器上要多等一会
+      for (var attempt = 0; attempt < 200 && !manager.needsReload; attempt++) {
+        await Future.delayed(const Duration(milliseconds: 10));
+      }
 
       expect(manager.missingRuleSets, isEmpty);
       expect(manager.needsReload, isTrue);
