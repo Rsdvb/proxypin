@@ -11,6 +11,7 @@ import 'package:proxypin/core/profile.dart';
 import 'package:proxypin/core/rule_group.dart';
 import 'package:proxypin/network/bin/server.dart';
 import 'package:proxypin/network/components/host_filter.dart';
+import 'package:proxypin/utils/desktop_tray.dart';
 
 import 'decrypt_domains_page.dart';
 import 'format.dart';
@@ -34,6 +35,7 @@ class _ConnectPageState extends State<ConnectPage> {
     final pending = CoreManager.instance.pendingImport;
     pending.addListener(_openPendingImport);
     _openPendingImport();
+    if (Platform.isWindows) DesktopTrayManager.instance.coreReady();
   });
 
   @override

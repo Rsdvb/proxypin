@@ -33,6 +33,13 @@ class DesktopTrayManager with TrayListener {
     if (CoreManager.isReady) CoreManager.instance.addListener(_updateMenu);
   }
 
+  /// 内核层就绪。托盘可能比它先起来（启动后隐藏窗口时），这时菜单要补上连接项
+  void coreReady() {
+    if (!_initialized) return;
+    CoreManager.instance.addListener(_updateMenu);
+    unawaited(_updateMenu());
+  }
+
   Future<void> _updateMenu() async {
     final connected = CoreManager.isReady && CoreManager.instance.isRunning;
     await trayManager.setContextMenu(

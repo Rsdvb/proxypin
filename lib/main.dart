@@ -20,6 +20,7 @@ import 'dart:io';
 
 import 'package:code_forge/code_forge.dart';
 import 'package:flutter/material.dart';
+import 'package:proxypin/core/single_instance.dart';
 import 'package:proxypin/network/bin/configuration.dart';
 import 'package:proxypin/network/components/manager/environment_manager.dart';
 import 'package:proxypin/ui/component/chinese_font.dart';
@@ -30,6 +31,7 @@ import 'package:proxypin/ui/configuration.dart';
 import 'package:proxypin/ui/desktop/desktop.dart';
 import 'package:proxypin/ui/mobile/mobile.dart';
 import 'package:proxypin/utils/desktop_support.dart';
+import 'package:proxypin/utils/desktop_tray.dart';
 import 'package:proxypin/utils/navigator.dart';
 import 'package:proxypin/utils/platform.dart';
 import 'package:window_manager/window_manager.dart';
@@ -69,6 +71,16 @@ void main(List<String> args) async {
     }
     runApp(FluentApp(multiWindow(windowId, argument), appConfiguration));
     return;
+  }
+
+  // 再次打开或点一键导入时，把命令行交给已有的实例就退出，窗口都不用出现
+  if (Platform.isWindows) {
+    final first = await SingleInstance.claim(args, onOpen: (args) {
+      WindowsLinks.receive(args);
+      unawaited(DesktopTrayManager.instance.restoreWindow());
+    });
+    if (!first) exit(0);
+    WindowsLinks.receive(args);
   }
 
   var configuration = Configuration.instance;

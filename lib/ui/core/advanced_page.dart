@@ -3,7 +3,9 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:proxypin/core/core_manager.dart';
 import 'package:proxypin/core/core_settings.dart';
+import 'package:proxypin/core/single_instance.dart';
 import 'package:proxypin/core/windows_autostart.dart';
+import 'package:proxypin/ui/configuration.dart';
 
 /// 不常改的连接设置。默认值就能用，所以不放在首页
 class AdvancedPage extends StatefulWidget {
@@ -18,6 +20,7 @@ class _AdvancedPageState extends State<AdvancedPage> {
   late final TextEditingController _testUrl = TextEditingController(text: _manager.settings.testUrl);
   bool _autostart = false;
   bool _changed = false;
+  final Map<String, bool> _schemes = {};
 
   CoreSettings get _settings => _manager.settings;
 
@@ -28,6 +31,11 @@ class _AdvancedPageState extends State<AdvancedPage> {
       WindowsAutostart.isEnabled().then((value) {
         if (mounted) setState(() => _autostart = value);
       });
+      for (final scheme in WindowsSchemes.supported) {
+        WindowsSchemes.isRegistered(scheme).then((value) {
+          if (mounted) setState(() => _schemes[scheme] = value);
+        });
+      }
     }
   }
 
@@ -48,6 +56,16 @@ class _AdvancedPageState extends State<AdvancedPage> {
       change();
       _changed = true;
     });
+  }
+
+  Future<void> _setScheme(String scheme, bool enabled) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await WindowsSchemes.setRegistered(scheme, enabled);
+      if (mounted) setState(() => _schemes[scheme] = enabled);
+    } on ProcessException {
+      messenger.showSnackBar(SnackBar(content: Text('$scheme:// 链接设置失败')));
+    }
   }
 
   Future<void> _openBypass() async {
@@ -82,7 +100,7 @@ class _AdvancedPageState extends State<AdvancedPage> {
           value: _settings.autoConnect,
           onChanged: (value) => _change(() => _settings.autoConnect = value),
         ),
-        if (Platform.isWindows)
+        if (Platform.isWindows) ...[
           SwitchListTile(
             title: const Text('开机自启'),
             value: _autostart,
@@ -91,6 +109,23 @@ class _AdvancedPageState extends State<AdvancedPage> {
               if (mounted) setState(() => _autostart = value);
             },
           ),
+          SwitchListTile(
+            title: const Text('启动后隐藏窗口'),
+            subtitle: const Text('只留托盘图标，点图标打开'),
+            value: AppConfiguration.current?.hideAfterLaunch ?? false,
+            onChanged: (value) {
+              setState(() => AppConfiguration.current?.hideAfterLaunch = value);
+              AppConfiguration.current?.flushConfig();
+            },
+          ),
+          for (final scheme in WindowsSchemes.supported)
+            SwitchListTile(
+              title: Text('处理 $scheme:// 链接'),
+              subtitle: const Text('网页上的一键导入会打开 RsProxy'),
+              value: _schemes[scheme] ?? false,
+              onChanged: (value) => _setScheme(scheme, value),
+            ),
+        ],
         if (Platform.isWindows) ...[
           SwitchListTile(
             title: const Text('允许绕过系统代理'),

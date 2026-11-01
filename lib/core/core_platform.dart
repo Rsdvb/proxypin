@@ -10,6 +10,8 @@ import 'package:path_provider/path_provider.dart';
 import 'package:proxypin/network/util/logger.dart';
 import 'package:proxypin/network/util/system_proxy.dart';
 
+import 'single_instance.dart';
+
 enum CoreState { stopped, starting, running, stopping }
 
 /// sing-box 跑在哪里：Windows 是子进程，iOS 是隧道扩展
@@ -144,10 +146,10 @@ class WindowsCorePlatform implements CorePlatform {
   Stream<CoreState> get states => _states.stream;
 
   @override
-  Stream<String> get links => const Stream.empty();
+  Stream<String> get links => WindowsLinks.stream;
 
   @override
-  Future<String?> takePendingLink() async => null;
+  Future<String?> takePendingLink() async => WindowsLinks.take();
 
   @override
   Future<Directory> directory() async {

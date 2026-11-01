@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:proxypin/ui/configuration.dart';
 import 'package:proxypin/ui/desktop/window_listener.dart';
+import 'package:proxypin/utils/desktop_tray.dart';
 import 'package:screen_retriever/screen_retriever.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -42,6 +43,7 @@ class DesktopSupport {
           await windowManager.center();
         }
 
+        if (appConfiguration.hideAfterLaunch && await _showTrayIcon()) return;
         await windowManager.show();
         await windowManager.focus();
       });
@@ -50,6 +52,19 @@ class DesktopSupport {
       registerMethodHandler();
     } catch (e) {
       logger.e('Error during desktop initialization: $e');
+      // 窗口只由这里显示，出错时也要显示，否则进程在跑却什么都看不到
+      await windowManager.show();
+    }
+  }
+
+  /// 托盘图标要先有，否则窗口藏起来就再也打不开了
+  static Future<bool> _showTrayIcon() async {
+    try {
+      await DesktopTrayManager.instance.ensureInitialized();
+      return true;
+    } catch (e) {
+      logger.e('tray failed, showing the window instead: $e');
+      return false;
     }
   }
 
