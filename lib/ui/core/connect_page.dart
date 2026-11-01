@@ -354,6 +354,7 @@ class _PowerButton extends StatelessWidget {
 /// 节点 tag 的显示名
 String nodeLabel(String? tag) => switch (tag) {
       null || 'auto' => '自动选择',
+      'select' => '当前选择',
       'direct' => '直连',
       _ when tag.startsWith(RuleTarget.groupPrefix) => '自动选择 · ${tag.substring(RuleTarget.groupPrefix.length)}',
       _ => tag,

@@ -176,6 +176,8 @@ class _EditRuleGroupPageState extends State<EditRuleGroupPage> {
       title: Text(title),
       initiallyExpanded: open,
       tilePadding: EdgeInsets.zero,
+      // 输入框的标签浮在边框上方，贴着顶部会被折叠区域裁掉
+      childrenPadding: const EdgeInsets.only(top: 8),
       shape: const Border(),
       collapsedShape: const Border(),
       children: children,

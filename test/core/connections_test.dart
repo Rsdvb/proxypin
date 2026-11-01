@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:proxypin/core/clash_api.dart';
 import 'package:proxypin/core/connection_log.dart';
+import 'package:proxypin/ui/core/connect_page.dart';
 import 'package:proxypin/ui/core/connections_page.dart';
 import 'package:proxypin/ui/core/rule_group_edit_page.dart';
 
@@ -244,6 +245,13 @@ void main() {
       expect(csv, startsWith(r'C:\a.exe,,127.0.0.1,5000,"a,b.example",1.2.3.4,443,'));
       expect(csv, endsWith(',0,7'));
     });
+  });
+
+  test('internal outbound names never reach the screen', () {
+    expect(nodeLabel('select'), '当前选择');
+    expect(nodeLabel('auto'), '自动选择');
+    expect(nodeLabel('direct'), '直连');
+    expect(nodeLabel('香港 01'), '香港 01');
   });
 
   group('the core snapshot', () {
