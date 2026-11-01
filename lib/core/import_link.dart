@@ -1,5 +1,18 @@
 import 'share_link.dart';
 
+/// 控制连接的链接：rsproxy://connect、rsproxy://disconnect、rsproxy://reconnect
+enum LinkCommand {
+  connect,
+  disconnect,
+  reconnect;
+
+  static LinkCommand? parse(String link) {
+    final uri = Uri.tryParse(link.trim());
+    if (uri == null || uri.scheme.toLowerCase() != 'rsproxy') return null;
+    return LinkCommand.values.where((e) => e.name == uri.host.toLowerCase()).firstOrNull;
+  }
+}
+
 /// 网页上的“一键导入”链接，解析出订阅地址。各家客户端的写法不同，机场面板通常都会给
 class ImportLink {
   final String url;

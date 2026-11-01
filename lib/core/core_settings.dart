@@ -488,6 +488,13 @@ class CoreSettings {
   /// 分流页隐藏未启用的组
   bool hideDisabledGroups;
   String testUrl;
+
+  /// 手动测延迟的超时和同时测的节点数
+  int testTimeoutSeconds;
+  int testConcurrency;
+
+  /// 内核校时用的服务器，空表示不校时。设备时间不准时 TLS 节点会连不上
+  String ntpServer;
   List<RuleGroup> groups;
 
   /// 给所有节点统一加的 TLS 和多路复用选项
@@ -620,6 +627,9 @@ class CoreSettings {
     this.groupsEnabled = true,
     this.hideDisabledGroups = false,
     this.testUrl = 'https://www.gstatic.com/generate_204',
+    this.testTimeoutSeconds = 5,
+    this.testConcurrency = 10,
+    this.ntpServer = '',
     List<RuleGroup>? groups,
     NodeTuning? tuning,
     this.directPort = 0,
@@ -732,6 +742,9 @@ class CoreSettings {
         groupsEnabled: json['groupsEnabled'] ?? true,
         hideDisabledGroups: json['hideDisabledGroups'] ?? false,
         testUrl: json['testUrl'] ?? 'https://www.gstatic.com/generate_204',
+        testTimeoutSeconds: json['testTimeoutSeconds'] ?? 5,
+        testConcurrency: json['testConcurrency'] ?? 10,
+        ntpServer: json['ntpServer'] ?? '',
         groups: (json['groups'] as List?)?.map((e) => RuleGroup.fromJson(e)).toList(),
         tuning: json['tuning'] == null ? null : NodeTuning.fromJson(json['tuning']),
         directPort: json['directPort'] ?? 0,
@@ -809,6 +822,9 @@ class CoreSettings {
         'groupsEnabled': groupsEnabled,
         'hideDisabledGroups': hideDisabledGroups,
         'testUrl': testUrl,
+        'testTimeoutSeconds': testTimeoutSeconds,
+        'testConcurrency': testConcurrency,
+        'ntpServer': ntpServer,
         'groups': groups,
         'tuning': tuning,
         'directPort': directPort,

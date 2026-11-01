@@ -281,8 +281,47 @@ class CoreManager extends ChangeNotifier {
   }
 
   void _onLink(String link) {
+    final command = LinkCommand.parse(link);
+    if (command != null) return unawaited(_run(command));
     final parsed = ImportLink.parse(link);
     if (parsed != null) pendingImport.value = parsed;
+  }
+
+  /// 快捷指令和别的 App 用链接控制连接
+  Future<void> _run(LinkCommand command) async {
+    switch (command) {
+      case LinkCommand.connect:
+        if (state == CoreState.stopped) await connect();
+      case LinkCommand.disconnect:
+        if (isRunning) await disconnect();
+      case LinkCommand.reconnect:
+        if (isRunning) await disconnect();
+        await connect();
+    }
+  }
+
+  /// 恢复默认设置。配置、节点选择这些用户自己的数据和这台设备的端口、密钥都留着
+  Future<void> resetSettings() async {
+    final kept = {
+      for (final entry in settings.toJson().entries)
+        if (CoreBackup.profileFields.contains(entry.key) || CoreBackup.deviceFields.contains(entry.key))
+          entry.key: entry.value,
+    };
+    settings = CoreSettings.fromJson(jsonDecode(jsonEncode(kept)) as Map<String, dynamic>);
+    await applySettings();
+  }
+
+  /// 清掉内核缓存和测过的延迟。缓存文件内核开着时删不掉，所以要先断开
+  Future<void> clearCache() async {
+    final running = isRunning;
+    if (running) await disconnect();
+    final cache = File(await platform.cachePath());
+    if (await cache.exists()) await cache.delete();
+    delays.clear();
+    failedNodes.clear();
+    await _saveLatency();
+    notifyListeners();
+    if (running) await connect();
   }
 
   /// 连接、断开、重载期间平台的状态是过程中的，以这几个流程的结果为准
@@ -641,6 +680,7 @@ class CoreManager extends ChangeNotifier {
       cachePath: await platform.cachePath(),
       testUrl: settings.testUrl,
       logLevel: settings.logLevel,
+      ntpServer: settings.ntpServer,
     );
     final raw = settings.rawConfigName.isEmpty ? null : await store.loadRawConfig();
     final config = raw == null ? CoreConfig.build(options) : _withControlApi(raw);
@@ -1090,9 +1130,6 @@ class CoreManager extends ChangeNotifier {
     return profile;
   }
 
-  /// 同时测的节点数，和内核自己测组时一样
-  static const int _testConcurrency = 10;
-
   /// 测节点延迟，[tags] 为空时测全部。[connectFirst] 时没连接就先连上：延迟要经过内核才测得出来。
   /// 逐个测而不是整组一起：这样每个节点都能显示自己的进度，失败的也知道是谁
   Future<void> testLatency({Iterable<String>? tags, bool connectFirst = false}) async {
@@ -1111,13 +1148,13 @@ class CoreManager extends ChangeNotifier {
     Future<void> worker() async {
       while (queue.isNotEmpty && isRunning) {
         final tag = queue.removeLast();
-        _recordDelay(tag, await api.delay(tag, url: settings.testUrl));
+        _recordDelay(tag, await api.delay(tag, url: settings.testUrl, timeoutMs: settings.testTimeoutSeconds * 1000));
         testingNodes.remove(tag);
       }
     }
 
     try {
-      await Future.wait(List.generate(_testConcurrency, (_) => worker()));
+      await Future.wait(List.generate(settings.testConcurrency, (_) => worker()));
       if (tags == null) {
         _forgetGoneNodes();
         await _removeFailedNodes(batch);

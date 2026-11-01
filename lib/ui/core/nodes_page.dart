@@ -335,9 +335,24 @@ class _NodesPageState extends State<NodesPage> {
             color: _manager.failedNodes.contains(tag) ? theme.colorScheme.error : theme.colorScheme.onSurfaceVariant,
           );
     return InkWell(
-      onTap: () => _test([tag]),
+      onTap: () => _manager.failedNodes.contains(tag) ? _explainFailure(tag) : _test([tag]),
       child: Padding(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10), child: content),
     );
+  }
+
+  Future<void> _explainFailure(String tag) async {
+    final retry = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(tag),
+        content: SelectableText(_manager.api.delayFailures[tag] ?? '上次测试没有成功。'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('关闭')),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('重试')),
+        ],
+      ),
+    );
+    if (retry == true) await _test([tag]);
   }
 
   /// 自动选择、自定义组和直连

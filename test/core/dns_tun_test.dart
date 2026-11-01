@@ -477,6 +477,17 @@ void main() {
       ),
     );
     File('$directory/all-options.json').writeAsStringSync(jsonEncode(CoreConfig.build(options)));
+    final ntp = CoreOptions(
+      nodes: const [],
+      upstreamPort: 17891,
+      mitmPort: 9099,
+      clashPort: 17892,
+      clashSecret: 's',
+      ruleSetDirectory: 'rules',
+      cachePath: 'cache.db',
+      ntpServer: 'time.apple.com',
+    );
+    File('$directory/ntp.json').writeAsStringSync(jsonEncode(CoreConfig.build(ntp)));
 
     final dhcp = _options(dns: DnsSettings(direct: DnsCatalog.dhcp, proxy: 'quic://dns.adguard.com', proxyResolve: ProxyResolve.proxy));
     File('$directory/dhcp.json').writeAsStringSync(jsonEncode(CoreConfig.build(dhcp)));

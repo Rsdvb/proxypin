@@ -8,6 +8,7 @@ import 'package:proxypin/core/core_manager.dart';
 import 'package:proxypin/core/profile.dart';
 import 'package:proxypin/core/subscription.dart';
 import 'package:proxypin/ui/component/qrcode/qr_scan_view.dart';
+import 'package:proxypin/utils/platform.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import 'connect_page.dart';
@@ -144,6 +145,16 @@ class _ProfileCardState extends State<_ProfileCard> {
     messenger.showSnackBar(const SnackBar(content: Text('已复制')));
   }
 
+  /// 导出成 sing-box 格式，别的客户端也能读
+  Future<void> _export() async {
+    final messenger = ScaffoldMessenger.of(context);
+    final path = await Platforms.saveFileAdaptive(fileName: '${widget.profile.name}.json');
+    if (path == null) return;
+    final content = const JsonEncoder.withIndent('  ').convert({'outbounds': widget.profile.nodes});
+    await File(path).writeAsString(content);
+    messenger.showSnackBar(const SnackBar(content: Text('已导出')));
+  }
+
   Future<void> _confirmRemove() async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -166,9 +177,13 @@ class _ProfileCardState extends State<_ProfileCard> {
     final theme = Theme.of(context);
     return Card(
       elevation: 0,
-      color: active ? theme.colorScheme.primaryContainer : theme.colorScheme.surfaceContainerLow,
+      margin: const EdgeInsets.only(bottom: 10),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppTheme.radius),
+        side: active ? BorderSide(color: theme.colorScheme.primary, width: 1.4) : BorderSide.none,
+      ),
+      clipBehavior: Clip.antiAlias,
       child: InkWell(
-        borderRadius: BorderRadius.circular(12),
         onTap: () => widget.manager.setActiveProfile(profile.id),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 12, 4, 12),
@@ -198,6 +213,7 @@ class _ProfileCardState extends State<_ProfileCard> {
                   'qr' => _showQrCode(),
                   'copy' => _copyLink(),
                   'node' => Navigator.of(context).push(MaterialPageRoute(builder: (_) => AddNodePage(profile: profile))),
+                  'export' => _export(),
                   'edit' => Navigator.of(context)
                       .push(MaterialPageRoute(builder: (_) => EditProfilePage(profile: profile))),
                   _ => _confirmRemove(),
@@ -209,6 +225,7 @@ class _ProfileCardState extends State<_ProfileCard> {
                     PopupMenuItem(value: 'copy', child: Text('复制链接')),
                   ],
                   if (!profile.isSubscription && !profile.isMerged) const PopupMenuItem(value: 'node', child: Text('添加节点')),
+                  if (!profile.isMerged) const PopupMenuItem(value: 'export', child: Text('导出')),
                   const PopupMenuItem(value: 'edit', child: Text('编辑')),
                   const PopupMenuItem(value: 'remove', child: Text('删除')),
                 ],

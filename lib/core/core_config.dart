@@ -98,6 +98,9 @@ class CoreOptions {
   final String testUrl;
   final String logLevel;
 
+  /// 校时服务器，可以带端口。空表示不校时
+  final String ntpServer;
+
   CoreOptions({
     required this.nodes,
     this.selected,
@@ -141,6 +144,7 @@ class CoreOptions {
     required this.cachePath,
     this.testUrl = 'https://www.gstatic.com/generate_204',
     this.logLevel = 'warn',
+    this.ntpServer = '',
   })  : dns = dns ?? DnsSettings(),
         tunSettings = tunSettings ?? TunSettings(),
         tuning = tuning ?? NodeTuning();
@@ -207,6 +211,7 @@ class CoreConfig {
     final routes = _Routes.of(options);
     return {
       'log': {'level': options.logLevel, 'timestamp': false},
+      if (options.ntpServer.isNotEmpty) 'ntp': _ntp(options.ntpServer),
       'dns': _dns(options, routes),
       'inbounds': _inbounds(options),
       'outbounds': _outbounds(options, routes),
@@ -220,6 +225,16 @@ class CoreConfig {
         // 假 IP 映射要留下来：内核重启后，应用手里缓存的还是旧的假 IP
         'cache_file': {'enabled': true, 'path': options.cachePath, 'store_fakeip': true},
       },
+    };
+  }
+
+  static Map<String, dynamic> _ntp(String server) {
+    final parts = server.split(':');
+    return {
+      'enabled': true,
+      'server': parts.first,
+      'server_port': parts.length == 2 ? int.tryParse(parts.last) ?? 123 : 123,
+      'interval': '30m',
     };
   }
 

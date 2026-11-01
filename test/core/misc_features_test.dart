@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:proxypin/core/clash_api.dart';
 import 'package:proxypin/core/core_backup.dart';
+import 'package:proxypin/core/core_config.dart';
 import 'package:proxypin/core/core_manager.dart';
 import 'package:proxypin/core/core_platform.dart';
 import 'package:proxypin/core/core_settings.dart';
@@ -430,5 +431,82 @@ void main() {
       await tester.pump();
       expect(find.text('中国大陆'), findsOneWidget);
     });
+  });
+
+  group('maintenance', () {
+    late Directory root;
+    late _Platform platform;
+    late CoreManager manager;
+
+    setUp(() async {
+      root = Directory.systemTemp.createTempSync('rsproxy_maintenance_');
+      platform = _Platform(root);
+      manager = CoreManager(
+        platform: platform,
+        store: CoreStore(root),
+        mitm: _Mitm(),
+        loadRuleSet: (_) async => Uint8List(0),
+        fetchRuleSet: (_, __) async => throw const SocketException('offline'),
+        apiFactory: (_, __) => _Api(),
+      );
+      await manager.load();
+      await manager.addProfile('trojan://p@a.example:443#A');
+    });
+
+    tearDown(() {
+      try {
+        root.deleteSync(recursive: true);
+      } on FileSystemException {
+        // A save may still be finishing on Windows
+      }
+    });
+
+    test('resetting settings keeps profiles and what belongs to this device', () async {
+      final secret = manager.settings.clashSecret;
+      manager.settings
+        ..privateDirect = false
+        ..testConcurrency = 50
+        ..mixedPort = 18000;
+
+      await manager.resetSettings();
+
+      expect(manager.settings.privateDirect, isTrue);
+      expect(manager.settings.testConcurrency, 10);
+      expect(manager.settings.mixedPort, 18000);
+      expect(manager.settings.clashSecret, secret);
+      expect(manager.profiles, hasLength(1));
+      expect(manager.activeProfile, isNotNull);
+    });
+
+    test('clearing the cache removes the file and comes back connected', () async {
+      await manager.connect();
+      final cache = File(await platform.cachePath())..writeAsStringSync('old');
+      manager.delays['A'] = 80;
+      manager.failedNodes.add('B');
+
+      await manager.clearCache();
+
+      expect(cache.existsSync(), isFalse);
+      expect(manager.delays, isEmpty);
+      expect(manager.failedNodes, isEmpty);
+      expect(manager.isRunning, isTrue);
+    });
+  });
+
+  test('time sync is in the config only when a server is set', () {
+    Map<String, dynamic> build(String server) => CoreConfig.build(CoreOptions(
+          nodes: const [],
+          upstreamPort: 1,
+          mitmPort: 2,
+          clashPort: 3,
+          clashSecret: 's',
+          ruleSetDirectory: 'rules',
+          cachePath: 'cache.db',
+          ntpServer: server,
+        ));
+
+    expect(build('').containsKey('ntp'), isFalse);
+    expect(build('time.apple.com')['ntp'], {'enabled': true, 'server': 'time.apple.com', 'server_port': 123, 'interval': '30m'});
+    expect(build('pool.example:1234')['ntp']['server_port'], 1234);
   });
 }

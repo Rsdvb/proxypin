@@ -39,4 +39,16 @@ void main() {
     expect(ImportLink.parse('https://example.com/sub'), isNull);
     expect(ImportLink.parse('not a link'), isNull);
   });
+
+  test('links can control the connection', () {
+    expect(LinkCommand.parse('rsproxy://connect'), LinkCommand.connect);
+    expect(LinkCommand.parse('rsproxy://disconnect'), LinkCommand.disconnect);
+    expect(LinkCommand.parse('RsProxy://Reconnect'), LinkCommand.reconnect);
+  });
+
+  test('only our own scheme controls the connection', () {
+    expect(LinkCommand.parse('clash://connect'), isNull);
+    expect(LinkCommand.parse('rsproxy://install-config?url=$encoded'), isNull);
+    expect(LinkCommand.parse('not a link'), isNull);
+  });
 }

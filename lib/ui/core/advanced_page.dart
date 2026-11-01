@@ -94,11 +94,66 @@ class _AdvancedPageState extends State<AdvancedPage> {
     if (mounted) setState(() => _changed = true);
   }
 
+  Future<void> _editNtp() async {
+    final controller = TextEditingController(text: _settings.ntpServer);
+    final server = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('NTP 服务器'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          autocorrect: false,
+          decoration: const InputDecoration(hintText: 'time.apple.com，留空关闭'),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
+          TextButton(onPressed: () => Navigator.pop(context, controller.text.trim()), child: const Text('确定')),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (server != null) _change(() => _settings.ntpServer = server);
+  }
+
+  Future<bool> _confirm(String title, String message) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('取消')),
+          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('确定')),
+        ],
+      ),
+    );
+    return confirmed == true;
+  }
+
+  Future<void> _reset() async {
+    final messenger = ScaffoldMessenger.of(context);
+    if (!await _confirm('重置设置', '分流、DNS、TUN 等设置都恢复默认。配置和节点不受影响。')) return;
+    await _manager.resetSettings();
+    _testUrl.text = _settings.testUrl;
+    _changed = false;
+    if (mounted) setState(() {});
+    messenger.showSnackBar(const SnackBar(content: Text('已重置')));
+  }
+
+  Future<void> _clearCache() async {
+    final messenger = ScaffoldMessenger.of(context);
+    if (!await _confirm('清理缓存', '清掉内核缓存和测过的延迟。正在连接时会重新连接一次。')) return;
+    await _manager.clearCache();
+    messenger.showSnackBar(const SnackBar(content: Text('已清理')));
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('高级设置')),
       body: SettingsList(children: [
+        const SectionLabel('网络'),
         ListTile(
           title: const Text('IPv6'),
           subtitle: const Text('节点没有 IPv6 时开启反而容易连不上'),
@@ -116,10 +171,11 @@ class _AdvancedPageState extends State<AdvancedPage> {
             },
           ),
         ),
-        SwitchListTile(
-          title: const Text('打开 App 时自动连接'),
-          value: _settings.autoConnect,
-          onChanged: (value) => _change(() => _settings.autoConnect = value),
+        ListTile(
+          title: const Text('NTP 校时'),
+          subtitle: const Text('设备时间不准时 TLS 节点会连不上，这时才需要开'),
+          trailing: Text(_settings.ntpServer.isEmpty ? '未开启' : _settings.ntpServer),
+          onTap: _editNtp,
         ),
         ListTile(
           title: const Text('使用原始 sing-box 配置'),
@@ -131,7 +187,22 @@ class _AdvancedPageState extends State<AdvancedPage> {
               : IconButton(tooltip: '清除', icon: const Icon(Icons.close), onPressed: _clearRawConfig),
           onTap: _pickRawConfig,
         ),
+        const SectionLabel('启动'),
+        SwitchListTile(
+          title: const Text('打开 App 时自动连接'),
+          value: _settings.autoConnect,
+          onChanged: (value) => _change(() => _settings.autoConnect = value),
+        ),
         if (Platform.isWindows) ...[
+          SwitchListTile(
+            title: const Text('关闭窗口时缩到托盘'),
+            subtitle: const Text('关掉后，点窗口的关闭按钮会退出 RsProxy'),
+            value: AppConfiguration.current?.minimizeToTray ?? false,
+            onChanged: (value) {
+              setState(() => AppConfiguration.current?.minimizeToTray = value);
+              AppConfiguration.current?.flushConfig();
+            },
+          ),
           SwitchListTile(
             title: const Text('开机自启'),
             value: _autostart,
@@ -158,6 +229,7 @@ class _AdvancedPageState extends State<AdvancedPage> {
             ),
         ],
         if (Platform.isWindows) ...[
+          const SectionLabel('系统代理'),
           SwitchListTile(
             title: const Text('允许绕过系统代理'),
             value: _settings.proxyBypass,
@@ -171,14 +243,48 @@ class _AdvancedPageState extends State<AdvancedPage> {
             onTap: _settings.proxyBypass ? _openBypass : null,
           ),
         ],
+        const SectionLabel('延迟测试'),
         Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
           child: TextField(
             controller: _testUrl,
             autocorrect: false,
-            decoration: const InputDecoration(
-                labelText: '延迟测试地址', helperText: '测节点延迟时访问的网址'),
+            decoration: const InputDecoration(labelText: '测试地址', helperText: '测节点延迟时访问的网址'),
           ),
+        ),
+        ListTile(
+          title: const Text('超时时长'),
+          trailing: DropdownButton<int>(
+            value: _settings.testTimeoutSeconds,
+            underline: const SizedBox.shrink(),
+            items: [
+              for (final seconds in const [1, 2, 3, 5, 8, 10, 15]) DropdownMenuItem(value: seconds, child: Text('$seconds 秒')),
+            ],
+            onChanged: (value) {
+              if (value != null) _change(() => _settings.testTimeoutSeconds = value);
+            },
+          ),
+        ),
+        ListTile(
+          title: const Text('并发数量'),
+          subtitle: const Text('同时测的节点数，太大可能让连接数超限'),
+          trailing: DropdownButton<int>(
+            value: _settings.testConcurrency,
+            underline: const SizedBox.shrink(),
+            items: [
+              for (final count in const [1, 5, 10, 20, 50]) DropdownMenuItem(value: count, child: Text('$count')),
+            ],
+            onChanged: (value) {
+              if (value != null) _change(() => _settings.testConcurrency = value);
+            },
+          ),
+        ),
+        const SectionLabel('维护'),
+        ListTile(title: const Text('清理缓存'), trailing: const Icon(Icons.chevron_right), onTap: _clearCache),
+        ListTile(
+          title: Text('重置设置', style: TextStyle(color: Theme.of(context).colorScheme.error)),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: _reset,
         ),
       ]),
     );

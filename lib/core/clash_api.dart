@@ -132,18 +132,18 @@ class ClashApi {
 
   void close() => _client.close(force: true);
 
-  Future<HttpClientResponse> _send(String method, String path, {Object? body}) async {
+  Future<HttpClientResponse> _send(String method, String path, {Object? body, Duration timeout = _timeout}) async {
     final request = await _client.openUrl(method, Uri.parse('http://$host:$port$path')).timeout(_timeout);
     request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $secret');
     if (body != null) {
       request.headers.contentType = ContentType.json;
       request.write(jsonEncode(body));
     }
-    return request.close().timeout(_timeout);
+    return request.close().timeout(timeout);
   }
 
-  Future<Object?> _json(String method, String path, {Object? body}) async {
-    final response = await _send(method, path, body: body);
+  Future<Object?> _json(String method, String path, {Object? body, Duration timeout = _timeout}) async {
+    final response = await _send(method, path, body: body, timeout: timeout);
     final text = await response.transform(utf8.decoder).join();
     if (response.statusCode >= 300) {
       throw HttpException('$method $path: ${response.statusCode} $text');
@@ -192,13 +192,29 @@ class ClashApi {
   Future<int?> delay(String node, {required String url, int timeoutMs = 5000}) async {
     final query = 'url=${Uri.encodeComponent(url)}&timeout=$timeoutMs';
     try {
-      final json = await _json('GET', '/proxies/${Uri.encodeComponent(node)}/delay?$query');
+      // 本地请求要等得比内核久，否则节点还没超时这边先断了
+      final json = await _json('GET', '/proxies/${Uri.encodeComponent(node)}/delay?$query',
+          timeout: Duration(milliseconds: timeoutMs + 1000));
       final value = (json as Map?)?['delay'];
+      delayFailures.remove(node);
       return value is num && value > 0 ? value.toInt() : null;
-    } on Exception {
-      // 不通时内核回错误状态码；刚好超时的话本地请求也会先超时
+    } on Exception catch (e) {
+      // 不通时内核回错误状态码
+      delayFailures[node] = _describeDelayFailure(e, timeoutMs);
       return null;
     }
+  }
+
+  /// 节点最近一次测试失败的原因
+  final Map<String, String> delayFailures = {};
+
+  static String _describeDelayFailure(Exception error, int timeoutMs) {
+    final text = error.toString();
+    if (error is TimeoutException || text.contains(': 504 ')) {
+      return '${timeoutMs ~/ 1000} 秒内没有响应。节点可能已经失效，或者被当前网络屏蔽了';
+    }
+    if (text.contains(': 503 ')) return '连不上节点。检查地址、端口和密码，具体错误可以看日志';
+    return text;
   }
 
   /// 测一组节点的延迟，返回通的节点及延迟（毫秒）
