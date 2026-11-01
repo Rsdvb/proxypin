@@ -173,9 +173,16 @@ void main() {
     if (singBox == null) return;
     clientProcess.kill();
     nodeProcess.kill();
+    // Windows keeps the folder locked until the processes are really gone
+    await clientProcess.exitCode;
+    await nodeProcess.exitCode;
     await mitm.stop();
     await origin.close(force: true);
-    await work.delete(recursive: true);
+    try {
+      await work.delete(recursive: true);
+    } on FileSystemException {
+      // a leftover temp folder is harmless
+    }
   });
 
   test('a listed domain is decrypted, then leaves through the node', () async {
