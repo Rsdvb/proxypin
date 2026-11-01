@@ -19,10 +19,11 @@ class ProxyVpnService {
     
     init(packetFlow: NEPacketTunnelFlow, proxyAddress: Network.NWEndpoint?) {
         self.packetFlow = packetFlow
-        self.socketIOService = SocketIOService(clientPacketWriter: packetFlow)
+        let writer = ClientPacketWriter(packetFlow: packetFlow)
+        self.socketIOService = SocketIOService(clientPacketWriter: writer)
         let manager = ConnectionManager()
         manager.proxyAddress = proxyAddress
-        self.connectionHandler = ConnectionHandler(manager: manager, writer: packetFlow, ioService: socketIOService)
+        self.connectionHandler = ConnectionHandler(manager: manager, writer: writer, ioService: socketIOService)
     }
     
     

@@ -13,7 +13,7 @@ import os.log
 class ConnectionManager : CloseableConnection{
     //static let instance = ConnectionManager()
     
-    private var table: [String: Connection] = [:]
+    private var table: [ConnectionKey: Connection] = [:]
     private let lock = NSLock()
 
     public var proxyAddress: NWEndpoint?
@@ -30,7 +30,7 @@ class ConnectionManager : CloseableConnection{
         return getConnectionByKey(key: key)
     }
     
-    func getConnectionByKey(key: String) -> Connection? {
+    func getConnectionByKey(key: ConnectionKey) -> Connection? {
         lock.lock()
         let connection = table[key]
         lock.unlock()
@@ -61,7 +61,7 @@ class ConnectionManager : CloseableConnection{
         let ipString = PacketUtil.intToIPAddress(ip)
         if (proxyAddress == nil || !defaultPorts.contains(port) || isPrivateIP(ipString)) {
             let endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(ipString), port: NWEndpoint.Port(rawValue: port)!)
-            let nwConnection = NWConnection(to: endpoint, using: .tcp)
+            let nwConnection = NWConnection(to: endpoint, using: Connection.tcpParameters())
             connection.withLock {
                 connection.channel = nwConnection
                 connection.isInitConnect = true
@@ -78,7 +78,7 @@ class ConnectionManager : CloseableConnection{
             scheduleCleanup(connection: createdConnection)
         }
         if shouldLogCreated {
-            os_log("Created TCP connection %{public}@", log: OSLog.default, type: .default, key)
+            os_log("Created TCP connection %{public}@", log: OSLog.default, type: .default, key.description)
         }
 
         return createdConnection
@@ -118,7 +118,7 @@ class ConnectionManager : CloseableConnection{
         createdConnection = connection
         lock.unlock()
 
-        os_log("Created UDP connection %{public}@", log: OSLog.default, type: .default, key)
+        os_log("Created UDP connection %{public}@", log: OSLog.default, type: .default, key.description)
         scheduleCleanup(connection: createdConnection)
 
         return createdConnection
@@ -143,9 +143,9 @@ class ConnectionManager : CloseableConnection{
             let channel = connection.takeChannelForClose()
             if channel?.state != .cancelled {
                 channel?.cancel()
-                os_log("Closed connection %{public}@", log: OSLog.default, type: .debug, key)
+                os_log("Closed connection %{public}@", log: OSLog.default, type: .debug, key.description)
             } else {
-                os_log("Connection %{public}@ is already cancelled", log: OSLog.default, type: .debug, key)
+                os_log("Connection %{public}@ is already cancelled", log: OSLog.default, type: .debug, key.description)
             }
         }
     }
@@ -160,20 +160,9 @@ class ConnectionManager : CloseableConnection{
     }
 
     func keepSessionAlive(connection: Connection) {
-        let key = Connection.getConnectionKey(
-            nwProtocol: connection.nwProtocol,
-            destIp: connection.destinationIp,
-            destPort: connection.destinationPort,
-            sourceIp: connection.sourceIp,
-            sourcePort: connection.sourcePort
-        )
-
         connection.withLock {
             connection.lastActiveAt = Date()
         }
-        lock.lock()
-        self.table[key] = connection
-        lock.unlock()
     }
 
     private func timeout(for connection: Connection) -> TimeInterval {
@@ -204,7 +193,7 @@ class ConnectionManager : CloseableConnection{
         closeConnection(connection: connection)
     }
 
-    private func reapIdleConnections(keepingCapacityFor newKey: String) {
+    private func reapIdleConnections(keepingCapacityFor newKey: ConnectionKey) {
         guard table.count >= maxConnections else {
             return
         }
@@ -226,7 +215,7 @@ class ConnectionManager : CloseableConnection{
            }) {
             table.removeValue(forKey: oldest.key)
             oldest.value.takeChannelForClose()?.cancel()
-            os_log("Connection table full, evicted oldest connection %{public}@ for %{public}@", log: OSLog.default, type: .error, oldest.key, newKey)
+            os_log("Connection table full, evicted oldest connection %{public}@ for %{public}@", log: OSLog.default, type: .error, oldest.key.description, newKey.description)
         }
     }
 }

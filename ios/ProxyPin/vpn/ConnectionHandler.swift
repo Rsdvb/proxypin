@@ -18,10 +18,10 @@ enum ProtocolType: UInt8 {
 /// Handles incoming packets and routes them to the appropriate connection.
 class ConnectionHandler {
     private let manager: ConnectionManager
-    private let writer: NEPacketTunnelFlow
+    private let writer: ClientPacketWriter
     private let ioService: SocketIOService
-    
-    init(manager: ConnectionManager, writer: NEPacketTunnelFlow, ioService: SocketIOService) {
+
+    init(manager: ConnectionManager, writer: ClientPacketWriter, ioService: SocketIOService) {
         self.manager = manager
         self.writer = writer
         self.ioService = ioService
@@ -113,7 +113,7 @@ class ConnectionHandler {
         }
 
         synchronized(connection) {
-            os_log("handle UDP Packet %{public}@", log: OSLog.default, type: .default, connection.description)
+//            os_log("handle UDP Packet %{public}@", log: OSLog.default, type: .default, connection.description)
             if newSession {
                 ioService.registerSession(connection: connection)
             }
@@ -152,14 +152,14 @@ class ConnectionHandler {
         let key = Connection.getConnectionKey(nwProtocol: .TCP, destIp: destinationIP, destPort: destinationPort, sourceIp: sourceIP, sourcePort: sourcePort)
         
         if (tcpHeader.isSYN()) {
-            os_log("Received SYN packet %{public}@ seq:%u", log: OSLog.default, type: .default, key, tcpHeader.sequenceNumber)
+            os_log("Received SYN packet %{public}@ seq:%u", log: OSLog.default, type: .default, key.description, tcpHeader.sequenceNumber)
             // 3-way handshake + create new session
             replySynAck(ipHeader: ipHeader, tcpHeader: tcpHeader)
         } else if (tcpHeader.isACK()) {
 //            os_log("Received ACK packet for key: %{public}@", log: OSLog.default, type: .debug, key)
 
             guard let connection = manager.getConnectionByKey(key: key) else {
-                os_log("Ack for unknown session: %{public}@", log: OSLog.default, type: .default, key)
+                os_log("Ack for unknown session: %{public}@", log: OSLog.default, type: .default, key.description)
                 if tcpHeader.isFIN() {
                     sendLastAck(ip: ipHeader, tcp: tcpHeader)
                } else if !tcpHeader.isRST() {
@@ -248,8 +248,7 @@ class ConnectionHandler {
         }
         
         // 使用 TCP 协议
-        let parameters = NWParameters.tcp
-        let nwConnection = NWConnection(to: endpoint, using: parameters)
+        let nwConnection = NWConnection(to: endpoint, using: Connection.tcpParameters())
         connection.withLock {
             connection.channel = nwConnection
             connection.isInitConnect = true
@@ -293,7 +292,7 @@ class ConnectionHandler {
     }
 
     func ackFinAck(ipHeader: IP4Header, tcpHeader: TCPHeader, connection: Connection?) {
-        let ackNumber = tcpHeader.sequenceNumber + 1
+        let ackNumber = tcpHeader.sequenceNumber &+ 1
         let seqNumber = tcpHeader.ackNumber
         let finAckData = TCPPacketFactory.createFinAckData(ipHeader: ipHeader, tcpHeader: tcpHeader, ackToClient: ackNumber, seqToClient: seqNumber, isFin: true, isAck: true)
         write(data: finAckData)
@@ -314,7 +313,7 @@ class ConnectionHandler {
         let finAckData = TCPPacketFactory.createFinAckData(ipHeader: ipHeader, tcpHeader: tcpHeader, ackToClient: ackNumber, seqToClient: seqNumber, isFin: true, isAck: false)
         write(data: finAckData)
 
-        connection.sendNext = seqNumber + 1
+        connection.sendNext = seqNumber &+ 1
         connection.isClosingConnection = false
     }
     
@@ -326,23 +325,24 @@ class ConnectionHandler {
             os_log("Packet is corrupted", log: OSLog.default, type: .error)
         }
 
-        if (tcpHeader.sequenceNumber > connection.recSequence) {
+        if Int32(bitPattern: tcpHeader.sequenceNumber &- connection.recSequence) > 0 {
             connection.recSequence = tcpHeader.sequenceNumber
        }
 
+        // 序列号按 2^32 回绕，比较距离 sendUnAck 的偏移，不能直接比大小
         let ackNumber = tcpHeader.ackNumber
-        if ackNumber >= connection.sendUnAck && ackNumber <= connection.sendNext {
+        if ackNumber &- connection.sendUnAck <= connection.sendNext &- connection.sendUnAck {
             connection.sendUnAck = ackNumber
 
             connection.timestampReplyTo = tcpHeader.timeStampSender
             connection.timestampSender = Int(Date().timeIntervalSince1970)
-        } else if ackNumber != connection.sendUnAck {
+        } else {
             os_log("%{public}@ Not accepting ack# %u, valid range: %u...%u", log: OSLog.default, type: .error, connection.description, ackNumber, connection.sendUnAck, connection.sendNext)
         }
     }
     
     func sendAckForDisorder(ipHeader: IP4Header, tcpHeader: TCPHeader, acceptedDataLength: Int) {
-        let ackNumber = tcpHeader.sequenceNumber + UInt32(acceptedDataLength)
+        let ackNumber = tcpHeader.sequenceNumber &+ UInt32(acceptedDataLength)
 //        os_log("Sent disorder ack, ack# %{public}d", log: OSLog.default, type: .debug, ackNumber)
         let ackData = TCPPacketFactory.createResponseAckData(ipHeader: ipHeader, tcpHeader: tcpHeader, ackToClient: ackNumber)
         write(data: ackData)
@@ -350,7 +350,7 @@ class ConnectionHandler {
     
     func sendAck(ipHeader: IP4Header, tcpHeader: TCPHeader, acceptedDataLength: Int, connection: Connection) {
        synchronized(connection) {
-            let ackNumber = (tcpHeader.sequenceNumber + UInt32(acceptedDataLength)) % UInt32.max
+            let ackNumber = tcpHeader.sequenceNumber &+ UInt32(acceptedDataLength)
             connection.recSequence = ackNumber
             let ackData = TCPPacketFactory.createResponseAckData(ipHeader: ipHeader, tcpHeader: tcpHeader, ackToClient: ackNumber)
             self.write(data: ackData)
@@ -360,7 +360,7 @@ class ConnectionHandler {
     }
 
     private func sendLastAck(ip: IP4Header, tcp: TCPHeader) {
-        let data = TCPPacketFactory.createResponseAckData(ipHeader: ip, tcpHeader: tcp, ackToClient: tcp.sequenceNumber + 1)
+        let data = TCPPacketFactory.createResponseAckData(ipHeader: ip, tcpHeader: tcp, ackToClient: tcp.sequenceNumber &+ 1)
         self.write(data: data)
         os_log("Sent last ACK Packet to client with dest => %{public}@:%{public}d", log: OSLog.default, type: .debug, PacketUtil.intToIPAddress(ip.destinationIP), tcp.destinationPort)
     }
@@ -396,8 +396,8 @@ class ConnectionHandler {
         synchronized(connection) {
             connection.maxSegmentSize = Int(tcpTransport.maxSegmentSize)
             connection.sendUnAck = tcpTransport.sequenceNumber
-            connection.sendNext = tcpTransport.sequenceNumber + 1
-            
+            connection.sendNext = tcpTransport.sequenceNumber &+ 1
+
             //client initial sequence has been incremented by 1 and set to ack
             connection.recSequence = tcpTransport.ackNumber
             connection.lastIpHeader = ipHeader
@@ -426,7 +426,7 @@ class ConnectionHandler {
 
 
     private func write(data: Data) {
-        self.writer.writePackets([data], withProtocols: [NSNumber(value: AF_INET)])
+        self.writer.write(data: data)
     }
 
     private func handleICMPPacket(clientPacketData: inout Data, ipHeader: IP4Header) {

@@ -66,11 +66,15 @@ class Connection{
     
     //发送到客户端的下一个ack
     var sendNext: UInt32 = 0
-    
-    static func getConnectionKey(nwProtocol: NWProtocol, destIp: UInt32, destPort: UInt16, sourceIp: UInt32, sourcePort: UInt16) -> String {
-        let destIpString = PacketUtil.intToIPAddress(destIp)
-        let sourceIpString = PacketUtil.intToIPAddress(sourceIp)
-        return "\(nwProtocol)|\(sourceIpString):\(sourcePort)->\(destIpString):\(destPort)"
+
+    static func tcpParameters() -> NWParameters {
+        let tcpOptions = NWProtocolTCP.Options()
+        tcpOptions.noDelay = true
+        return NWParameters(tls: nil, tcp: tcpOptions)
+    }
+
+    static func getConnectionKey(nwProtocol: NWProtocol, destIp: UInt32, destPort: UInt16, sourceIp: UInt32, sourcePort: UInt16) -> ConnectionKey {
+        return ConnectionKey(nwProtocol: nwProtocol, sourceIp: sourceIp, sourcePort: sourcePort, destinationIp: destIp, destinationPort: destPort)
     }
 
     func closeConnection() {
@@ -148,7 +152,26 @@ class Connection{
         }))
     }
 
-    var description: String {
+    var key: ConnectionKey {
         return Connection.getConnectionKey(nwProtocol: nwProtocol, destIp: destinationIp, destPort: destinationPort, sourceIp: sourceIp, sourcePort: sourcePort)
+    }
+
+    var description: String {
+        return key.description
+    }
+}
+
+/// 连接表的键，每个报文都要查一次，不能拼字符串
+struct ConnectionKey: Hashable, CustomStringConvertible {
+    let nwProtocol: NWProtocol
+    let sourceIp: UInt32
+    let sourcePort: UInt16
+    let destinationIp: UInt32
+    let destinationPort: UInt16
+
+    var description: String {
+        let destIpString = PacketUtil.intToIPAddress(destinationIp)
+        let sourceIpString = PacketUtil.intToIPAddress(sourceIp)
+        return "\(nwProtocol)|\(sourceIpString):\(sourcePort)->\(destIpString):\(destinationPort)"
     }
 }
