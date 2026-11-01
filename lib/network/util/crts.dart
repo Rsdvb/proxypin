@@ -17,6 +17,7 @@
 import 'dart:async';
 import 'dart:core';
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:math';
 import 'dart:typed_data';
 import 'package:path_provider/path_provider.dart';
@@ -50,8 +51,17 @@ class CertificateManager {
   static final ExpiringCache<String, X509CertificateData> _remoteCertMap =
       ExpiringCache<String, X509CertificateData>(const Duration(minutes: 15));
 
+  /// 生成中的证书, 同一域名的并发握手共用一次签名
+  static final Map<String, Future<SecurityContext>> _pendingContexts = {};
+
+  /// 缓存代次, 清除缓存时递增, 使清除前发起的签名结果不再写入缓存
+  static int _cacheGeneration = 0;
+
   /// 服务端密钥
-  static AsymmetricKeyPair _serverKeyPair = CryptoUtils.generateRSAKeyPair();
+  static late AsymmetricKeyPair _serverKeyPair;
+
+  /// 服务端私钥 PEM, 所有叶子证书共用, 只需编码一次
+  static late List<int> _serverKeyPem;
 
   /// ca证书
   static X509CertificateData? _caCert;
@@ -74,6 +84,8 @@ class CertificateManager {
 
   /// 清除缓存
   static void cleanCache() {
+    _cacheGeneration++;
+    _pendingContexts.clear();
     _certificateMap.clear();
     _remoteCertMap.clear();
   }
@@ -89,7 +101,10 @@ class CertificateManager {
       await initCAConfig();
     }
 
-    return _createSecurityContext(host, remoteCert: _remoteCertMap[host]);
+    return _pendingContexts[host] ??= _createSecurityContext(host, remoteCert: _remoteCertMap[host]).whenComplete(() {
+      // 不能写成箭头函数：remove 返回的正是这个 Future，whenComplete 会等它完成而死锁
+      _pendingContexts.remove(host);
+    });
   }
 
   /// ssl验证失败时, 根据远程服务器真实证书重新生成叶子证书并刷新缓存
@@ -116,7 +131,7 @@ class CertificateManager {
         await initCAConfig();
       }
 
-      _createSecurityContext(host, remoteCert: remoteCert);
+      await _createSecurityContext(host, remoteCert: remoteCert);
       logger.d('regenerate certificate by remote cert for $host');
       return true;
     } catch (e, t) {
@@ -126,17 +141,32 @@ class CertificateManager {
   }
 
   /// 生成域名叶子证书的 [SecurityContext] 并写入缓存
-  static SecurityContext _createSecurityContext(String host, {X509CertificateData? remoteCert}) {
-    String cer = generate(_caCert!, _serverKeyPair.publicKey as RSAPublicKey, _caPriKey, host, remoteCert: remoteCert);
-    var rsaPrivateKey = _serverKeyPair.privateKey as RSAPrivateKey;
+  static Future<SecurityContext> _createSecurityContext(String host, {X509CertificateData? remoteCert}) async {
+    final generation = _cacheGeneration;
+    final cer = await _generateInBackground(host, remoteCert);
 
-    var securityContext = SecurityContext(withTrustedRoots: true)
+    // 本端是 TLS 服务端且不校验客户端证书, 用不到信任根
+    var securityContext = SecurityContext(withTrustedRoots: false)
       ..useCertificateChainBytes(cer.codeUnits)
       ..allowLegacyUnsafeRenegotiation = true
-      ..usePrivateKeyBytes(CryptoUtils.encodeRSAPrivateKeyToPemPkcs1(rsaPrivateKey).codeUnits);
+      ..usePrivateKeyBytes(_serverKeyPem);
 
-    _certificateMap[host] = securityContext;
+    // 签名期间缓存被清除, 或已拿到更贴近真实证书的 remoteCert, 这次的结果都不该留在缓存里
+    if (generation == _cacheGeneration && identical(remoteCert, _remoteCertMap[host])) {
+      _certificateMap[host] = securityContext;
+    }
     return securityContext;
+  }
+
+  /// RSA 签名是纯 Dart 大数运算, 放到后台 isolate, 否则会阻塞 UI 和同一 isolate 上的全部代理流量。
+  /// isolate 不共享静态变量, 用到的状态都要显式传入。
+  static Future<String> _generateInBackground(String host, X509CertificateData? remoteCert) {
+    final caCert = _caCert!;
+    final serverPubKey = _serverKeyPair.publicKey as RSAPublicKey;
+    final caPriKey = _caPriKey;
+    final issuerRawBytes = _caSubjectDnBytes;
+    return Isolate.run(
+        () => generate(caCert, serverPubKey, caPriKey, host, remoteCert: remoteCert, issuerRawBytes: issuerRawBytes));
   }
 
   /// 生成域名证书 PEM（仅证书，不含私钥）
@@ -150,8 +180,9 @@ class CertificateManager {
   /// 生成证书
   ///
   /// [remoteCert] 远程服务器真实证书, 若提供则复制其 Subject、SAN、有效期, 以通过客户端严格校验
+  /// [issuerRawBytes] ca证书 subject DN 原始字节, 默认取 [_caSubjectDnBytes], 在其他 isolate 调用时必须传入
   static String generate(X509CertificateData caRoot, RSAPublicKey serverPubKey, RSAPrivateKey caPriKey, String host,
-      {X509CertificateData? remoteCert}) {
+      {X509CertificateData? remoteCert, Uint8List? issuerRawBytes}) {
     //默认 subject 模板, 以及仅包含域名本身的 SAN
     Map<String, String> x509Subject = {
       'C': 'CN',
@@ -177,7 +208,7 @@ class CertificateManager {
         sans: sans,
         serialNumber: Random().nextInt(1000000).toString(),
         subject: x509Subject,
-        issuerRawBytes: _caSubjectDnBytes,
+        issuerRawBytes: issuerRawBytes ?? _caSubjectDnBytes,
         notBefore: notBefore,
         notAfter: notAfter);
   }
@@ -278,7 +309,8 @@ class CertificateManager {
     _initializationCompleter = Completer<void>();
 
     try {
-      _serverKeyPair = CryptoUtils.generateRSAKeyPair();
+      _serverKeyPair = await Isolate.run(CryptoUtils.generateRSAKeyPair);
+      _serverKeyPem = CryptoUtils.encodeRSAPrivateKeyToPemPkcs1(_serverKeyPair.privateKey as RSAPrivateKey).codeUnits;
 
       //从项目目录加入ca根证书
       var caPemFile = await certificateFile();
