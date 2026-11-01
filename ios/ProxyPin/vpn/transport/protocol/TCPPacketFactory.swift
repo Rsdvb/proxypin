@@ -14,6 +14,10 @@ class TCPPacketFactory {
 
    public static let TCP_HEADER_LENGTH = 20
 
+   // 隧道 MTU(1500) 减去 IP、TCP 头。写回客户端的报文按它分段，并在 SYN-ACK 中告知客户端，
+   // 否则客户端收不到 MSS 选项，会退回协议默认的约 536 字节，上传时包数增加近两倍
+   public static let MAX_SEGMENT_SIZE: UInt16 = 1460
+
    //从tcp报文创建tcpHeader
     static func createTCPHeader(data: Data) -> TCPHeader? {
         if  data.count < TCP_HEADER_LENGTH {
@@ -120,7 +124,7 @@ class TCPPacketFactory {
         if tcp.ackNumber > 0 {
             seqNumber = tcp.ackNumber
         } else {
-            ackNumber = tcp.sequenceNumber + UInt32(dataLength)
+            ackNumber = tcp.sequenceNumber &+ UInt32(dataLength)
         }
 
         tcp.ackNumber = ackNumber
@@ -175,11 +179,12 @@ class TCPPacketFactory {
        var tcp = tcpHeader.copy()
        flipIp(ip: &ip, tcp: &tcp)
 
-       tcp.dataOffset = 5 // tcp header length 5 * 4 = 20 bytes
-       tcp.options = nil
+       tcp.dataOffset = 6 // tcp header length 6 * 4 = 24 bytes, MSS option included
+       tcp.maxSegmentSize = MAX_SEGMENT_SIZE
+       tcp.options = Data([TCPHeader.MAX_SEGMENT_SIZE, 4, UInt8(MAX_SEGMENT_SIZE >> 8), UInt8(MAX_SEGMENT_SIZE & 0xFF)])
 
        // ack = received sequence + 1
-       let ackNumber = tcpHeader.sequenceNumber + 1
+       let ackNumber = tcpHeader.sequenceNumber &+ 1
        tcp.ackNumber = ackNumber
 
        // Server-generated initial sequence number
@@ -277,45 +282,31 @@ class TCPPacketFactory {
 
     //从tcpHeader创建tcp报文
     private static func createPacketData(ipHeader: IP4Header, tcpHeader: TCPHeader, data: Data?) -> Data {
-       let dataLength = data?.count ?? 0
+       let tcpStart = IPPacketFactory.IP4_HEADER_SIZE
+       let dataStart = tcpStart + tcpHeader.encodedLength
 
-       var buffer = Data()
+       // 每个报文都走这里：一次分配写完全部内容，校验和原地计算
+       var buffer = Data(count: dataStart + (data?.count ?? 0))
+       buffer.withUnsafeMutableBytes { (packet: UnsafeMutableRawBufferPointer) in
+           ipHeader.write(to: packet)
+           tcpHeader.write(to: UnsafeMutableRawBufferPointer(rebasing: packet[tcpStart...]))
+           if let data = data {
+               data.copyBytes(to: UnsafeMutableRawBufferPointer(rebasing: packet[dataStart...]))
+           }
 
-       // Add IP header
-       let ipBuffer = ipHeader.toBytes()
-       buffer.append(ipBuffer)
+           // Zero out IP checksum
+           packet.storeBytes(of: UInt16(0), toByteOffset: 10, as: UInt16.self)
+           let ipHeaderBytes = UnsafeRawBufferPointer(rebasing: packet[..<tcpStart])
+           packet.storeBytes(of: PacketUtil.checksum(ipHeaderBytes).bigEndian, toByteOffset: 10, as: UInt16.self)
 
-       // Add TCP header
-       let tcpBuffer = tcpHeader.toBytes()
-       buffer.append(tcpBuffer)
-
-       // Add data if exists
-       if let data = data {
-           buffer.append(data)
+           // Zero out TCP checksum
+           packet.storeBytes(of: UInt16(0), toByteOffset: tcpStart + 16, as: UInt16.self)
+           let tcpChecksum = PacketUtil.tcpChecksum(
+               tcpSegment: UnsafeRawBufferPointer(rebasing: packet[tcpStart...]),
+               sourceIP: ipHeader.sourceIP, destinationIP: ipHeader.destinationIP
+           )
+           packet.storeBytes(of: tcpChecksum.bigEndian, toByteOffset: tcpStart + 16, as: UInt16.self)
        }
-
-       // Zero out IP checksum
-       buffer[10] = 0
-       buffer[11] = 0
-
-       // Calculate IP checksum
-       let ipChecksum = PacketUtil.calculateChecksum(data: buffer, offset: 0, length: ipBuffer.count)
-       buffer[10] = ipChecksum[0]
-       buffer[11] = ipChecksum[1]
-//       IPPacketFactory.printPacket(data: ipBuffer)
-
-       // Zero out TCP checksum
-       let tcpStart = ipBuffer.count
-       buffer[tcpStart + 16] = 0
-       buffer[tcpStart + 17] = 0
-
-       // Calculate TCP checksum
-       let tcpChecksum = PacketUtil.calculateTCPHeaderChecksum(
-        data: buffer, offset: tcpStart, tcpLength: tcpBuffer.count + dataLength,
-           sourceIP: ipHeader.sourceIP, destinationIP: ipHeader.destinationIP
-       )
-       buffer[tcpStart + 16] = tcpChecksum[0]
-       buffer[tcpStart + 17] = tcpChecksum[1]
        return buffer
    }
 

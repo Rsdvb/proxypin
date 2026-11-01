@@ -31,73 +31,53 @@ class PacketUtil {
         return String(format: "%d.%d.%d.%d", (ip >> 24) & 0xFF, (ip >> 16) & 0xFF, (ip >> 8) & 0xFF, ip & 0xFF)
     }
     
-    static func calculateTCPHeaderChecksum(data: Data, offset: Int, tcpLength: Int, sourceIP: UInt32, destinationIP: UInt32) -> Data {
-        var bufferSize = tcpLength + 12
-        var isOdd = false
-        if bufferSize % 2 != 0 {
-            bufferSize += 1
-            isOdd = true
-        }
+    /// TCP checksum of `tcpSegment`, covering the IPv4 pseudo header.
+    static func tcpChecksum(tcpSegment: UnsafeRawBufferPointer, sourceIP: UInt32, destinationIP: UInt32) -> UInt16 {
+        let pseudoHeader = UInt64(sourceIP) + UInt64(destinationIP) + UInt64(ProtocolType.tcp.rawValue) + UInt64(tcpSegment.count)
+        return foldChecksum(pseudoHeader + onesComplementSum(tcpSegment))
+    }
 
-        var buffer = Data()
-
-        // Add source IP
-        buffer.append(contentsOf: sourceIP.bytes)
-        // Add destination IP
-        buffer.append(contentsOf: destinationIP.bytes)
-
-        // Add reserved byte and protocol (6 for TCP)
-        buffer.append(0)
-        buffer.append(6)
-
-        // Add TCP length
-        buffer.append(contentsOf: UInt16(tcpLength).bytes)
-
-        // Add TCP header and data
-        buffer.append(contentsOf: data[offset..<offset + tcpLength])
-
-        // Pad with zero if odd length
-        if isOdd {
-            buffer.append(0)
-        }
-
-        // Calculate checksum
-        return calculateChecksum(data: buffer, offset: 0, length: bufferSize)
+    /// RFC 1071 Internet checksum of `bytes`.
+    static func checksum(_ bytes: UnsafeRawBufferPointer) -> UInt16 {
+        return foldChecksum(onesComplementSum(bytes))
     }
 
     static func calculateChecksum(data: Data, offset: Int, length: Int) -> Data {
-        var start = offset
-        var sum = 0
-
-        while start < length {
-            sum += getNetworkInt(buffer: data, start: start, length: 2)
-            start += 2
-        }
-
-        // Carry over one's complement
-        while (sum >> 16) > 0 {
-            sum = (sum & 0xFFFF) + (sum >> 16)
-        }
-
-        // Flip the bits to get one's complement
-        sum = ~sum
-
-        // Extract the last two bytes of the int
-        let checksum = Data([UInt8(truncatingIfNeeded: (sum >> 8) & 0xFF), UInt8(truncatingIfNeeded: sum & 0xFF)])
-        return checksum
+        let value = data.withUnsafeBytes { checksum(UnsafeRawBufferPointer(rebasing: $0[offset..<offset + length])) }
+        return Data([UInt8(value >> 8), UInt8(value & 0xFF)])
     }
-    
-    static func getNetworkInt(buffer: Data, start: Int, length: Int) -> Int {
-        var value = 0
-        var end = start + min(length, 4)
-        if end > buffer.count { end = buffer.count }
-        for i in start..<end {
-            value = value | (Int(buffer[i]) & 0xFF)
-            if i < end - 1 { value = value << 8 }
+
+    /// Sums big-endian words without folding. Each packet goes through this once,
+    /// so it reads 32 bits at a time: 2^16 ≡ 1 (mod 0xFFFF), which makes that
+    /// equivalent to adding the 16-bit words of RFC 1071.
+    private static func onesComplementSum(_ bytes: UnsafeRawBufferPointer) -> UInt64 {
+        var sum: UInt64 = 0
+        var offset = 0
+
+        while bytes.count - offset >= 4 {
+            sum += UInt64(UInt32(bigEndian: bytes.loadUnaligned(fromByteOffset: offset, as: UInt32.self)))
+            offset += 4
         }
-        return value
+        if bytes.count - offset >= 2 {
+            sum += UInt64(UInt16(bigEndian: bytes.loadUnaligned(fromByteOffset: offset, as: UInt16.self)))
+            offset += 2
+        }
+        // An odd trailing byte is the high half of a word padded with zero.
+        if offset < bytes.count {
+            sum += UInt64(bytes[offset]) << 8
+        }
+        return sum
     }
-    
+
+    private static func foldChecksum(_ sum: UInt64) -> UInt16 {
+        var folded = sum
+        while (folded >> 16) > 0 {
+            folded = (folded & 0xFFFF) + (folded >> 16)
+        }
+        return ~UInt16(truncatingIfNeeded: folded)
+    }
+
+
     static func isPacketCorrupted(tcpHeader: TCPHeader) -> Bool {
         guard let options = tcpHeader.options else {
             return false

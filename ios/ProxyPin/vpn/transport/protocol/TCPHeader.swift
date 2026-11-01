@@ -140,26 +140,28 @@ class TCPHeader : TransportHeader{
         return Int(dataOffset) * 4
     }
 
-    /// Converts the TCP header to a byte array.
-    func toBytes() -> Data {
-        var buffer = Data()
+    /// Length of the header as written by `write(to:)`, including options.
+    var encodedLength: Int {
+        return TCPPacketFactory.TCP_HEADER_LENGTH + (options?.count ?? 0)
+    }
 
-        buffer.append(contentsOf: sourcePort.bytes)
-        buffer.append(contentsOf: destinationPort.bytes)
-        buffer.append(contentsOf: sequenceNumber.bytes)
-        buffer.append(contentsOf: ackNumber.bytes)
+    /// Writes the header into `buffer`, which must hold at least `encodedLength` bytes.
+    func write(to buffer: UnsafeMutableRawBufferPointer) {
+        buffer.storeBytes(of: sourcePort.bigEndian, toByteOffset: 0, as: UInt16.self)
+        buffer.storeBytes(of: destinationPort.bigEndian, toByteOffset: 2, as: UInt16.self)
+        buffer.storeBytes(of: sequenceNumber.bigEndian, toByteOffset: 4, as: UInt32.self)
+        buffer.storeBytes(of: ackNumber.bigEndian, toByteOffset: 8, as: UInt32.self)
 
         //is ns and data offset
-        let headerLength = 5
-        buffer.append(UInt8((headerLength << 4) | (isNS ? 1 : 0)))
-        buffer.append(flags)
-        buffer.append(contentsOf: windowSize.bytes)
-        buffer.append(contentsOf: checksum.bytes)
-        buffer.append(contentsOf: urgentPointer.bytes)
-//         if let options = options {
-//             buffer.append(options)
-//         }
-        return buffer
+        let headerLength = encodedLength / 4
+        buffer[12] = UInt8((headerLength << 4) | (isNS ? 1 : 0))
+        buffer[13] = flags
+        buffer.storeBytes(of: windowSize.bigEndian, toByteOffset: 14, as: UInt16.self)
+        buffer.storeBytes(of: checksum.bigEndian, toByteOffset: 16, as: UInt16.self)
+        buffer.storeBytes(of: urgentPointer.bigEndian, toByteOffset: 18, as: UInt16.self)
+        if let options = options {
+            options.copyBytes(to: UnsafeMutableRawBufferPointer(rebasing: buffer[TCPPacketFactory.TCP_HEADER_LENGTH...]))
+        }
     }
 
     /// Creates a copy of the TCP header.

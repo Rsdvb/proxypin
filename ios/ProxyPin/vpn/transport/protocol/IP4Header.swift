@@ -83,25 +83,30 @@ class IP4Header {
     }
 
     func toBytes() -> Data {
-        var buffer = Data()
-        buffer.append(UInt8((ipVersion << 4) + internetHeaderLength))
-        buffer.append(UInt8((diffTypeOfService << 2) + ecn))
+        var buffer = Data(count: IPPacketFactory.IP4_HEADER_SIZE)
+        buffer.withUnsafeMutableBytes { write(to: $0) }
+        return buffer
+    }
 
-        buffer.append(contentsOf: totalLength.bytes)
-        buffer.append(contentsOf: identification.bytes)
+    /// Writes the header into `buffer`, which must hold at least `IP4_HEADER_SIZE` bytes.
+    func write(to buffer: UnsafeMutableRawBufferPointer) {
+        buffer[0] = (ipVersion << 4) + internetHeaderLength
+        buffer[1] = (diffTypeOfService << 2) + ecn
+
+        buffer.storeBytes(of: totalLength.bigEndian, toByteOffset: 2, as: UInt16.self)
+        buffer.storeBytes(of: identification.bigEndian, toByteOffset: 4, as: UInt16.self)
 
         //组合标志和部分片段偏移
-        buffer.append(UInt8((fragmentOffset >> 8) & 0x1F) | flag)
-        buffer.append(UInt8(fragmentOffset & 0xFF))
+        buffer[6] = UInt8((fragmentOffset >> 8) & 0x1F) | flag
+        buffer[7] = UInt8(fragmentOffset & 0xFF)
 
-        buffer.append(timeToLive)
-        buffer.append(protocolNumber)
+        buffer[8] = timeToLive
+        buffer[9] = protocolNumber
 
-        buffer.append(contentsOf: headerChecksum.bytes)
+        buffer.storeBytes(of: headerChecksum.bigEndian, toByteOffset: 10, as: UInt16.self)
 
-        buffer.append(contentsOf: sourceIP.bytes)
-        buffer.append(contentsOf: destinationIP.bytes)
-        return buffer
+        buffer.storeBytes(of: sourceIP.bigEndian, toByteOffset: 12, as: UInt32.self)
+        buffer.storeBytes(of: destinationIP.bigEndian, toByteOffset: 16, as: UInt32.self)
     }
 }
 
@@ -115,7 +120,7 @@ class IPPacketFactory {
            return nil
        }
 
-       let buffer = [UInt8](data)
+       let buffer = [UInt8](data.prefix(IP4_HEADER_SIZE))
        let versionAndHeaderLength = buffer[0]
        let ipVersion = versionAndHeaderLength >> 4
        guard ipVersion == IP4_VERSION else {
