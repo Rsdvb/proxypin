@@ -129,7 +129,8 @@ class ClashApi {
       final json = await _json('GET', '/proxies/${Uri.encodeComponent(node)}/delay?$query');
       final value = (json as Map?)?['delay'];
       return value is num && value > 0 ? value.toInt() : null;
-    } on HttpException {
+    } on Exception {
+      // 不通时内核回错误状态码；刚好超时的话本地请求也会先超时
       return null;
     }
   }

@@ -130,7 +130,7 @@ void main() {
 
     expect(find.text('日本 02'), findsOneWidget);
     expect(find.text('香港 01'), findsNothing);
-    expect(find.text('自动选择'), findsNothing);
+    expect(find.text('自动选择'), findsOneWidget, reason: 'fixed choices stay while searching');
   });
 
   testWidgets('choosing a node takes effect on tap', (tester) async {

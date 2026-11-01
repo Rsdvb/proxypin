@@ -132,7 +132,13 @@ class _Api extends ClashApi {
   Future<void> select(String group, String node) async => calls.add('select:$group:$node');
 
   @override
-  Future<Map<String, int>> groupDelay(String group, {required String url, int timeoutMs = 5000}) async => latency;
+  Future<Map<String, int>> groupDelay(String group, {required String url, int timeoutMs = 5000}) async {
+    calls.add('groupDelay:$group');
+    return latency;
+  }
+
+  @override
+  Future<int?> delay(String node, {required String url, int timeoutMs = 5000}) async => latency[node];
 }
 
 void main() {

@@ -21,6 +21,7 @@ import 'profile.dart';
 import 'profile_parser.dart';
 import 'rule_group.dart';
 import 'rule_sets.dart';
+import 'share_link.dart';
 import 'subscription.dart';
 
 /// 解密端：RsProxy 自己的代理服务
@@ -39,6 +40,14 @@ abstract class MitmHost {
   Future<void> attach(int upstreamPort);
 
   Future<void> detach();
+}
+
+/// 同一份配置的节点
+class NodeGroup {
+  final Profile profile;
+  final List<String> tags;
+
+  const NodeGroup(this.profile, this.tags);
 }
 
 /// 内核没能启动，内容是给用户看的
@@ -100,8 +109,13 @@ class CoreManager extends ChangeNotifier {
   /// 节点 tag -> 最近一次测得的延迟（毫秒），不通时不在表里
   final Map<String, int> delays = {};
 
-  /// 延迟测试进行中
-  bool testing = false;
+  /// 最近一次测试不通的节点。和没测过要分开：一个是坏了，一个是不知道
+  final Set<String> failedNodes = {};
+
+  /// 排队或正在测的节点
+  final Set<String> testingNodes = {};
+
+  bool get testing => testingNodes.isNotEmpty;
 
   /// 配置已更新，但内核还在用旧的，重新加载或下次连接后生效
   bool needsReload = false;
@@ -144,16 +158,36 @@ class CoreManager extends ChangeNotifier {
   /// 节点列表每个控件都会读，过滤和合并都要分配内存，所以算一次留着，配置变了才重算
   List<Map<String, dynamic>>? _nodes;
 
-  List<Map<String, dynamic>> get nodes {
+  /// [nodes] 的缓存，和算它时用的 [_nodes] 对应
+  List<Map<String, dynamic>>? _enabledNodes;
+  List<Map<String, dynamic>>? _enabledFrom;
+
+  /// 合并配置里节点的来历：tag -> (来源配置, 它在来源里的 tag)
+  final Map<String, (Profile, String)> _mergedOrigins = {};
+
+  /// 界面上列出的节点，包括禁用的
+  List<Map<String, dynamic>> get listedNodes {
     final profile = activeProfile;
     if (profile == null) return const [];
     return _nodes ??= profile.isMerged ? _mergedNodes(profile) : profile.activeNodes;
+  }
+
+  /// 写进内核配置的节点，不含禁用的
+  List<Map<String, dynamic>> get nodes {
+    final listed = listedNodes;
+    if (settings.disabledNodes.isEmpty) return listed;
+    if (!identical(_enabledFrom, listed)) {
+      _enabledFrom = listed;
+      _enabledNodes = listed.where((e) => !isDisabled(e)).toList();
+    }
+    return _enabledNodes!;
   }
 
   /// 合并配置的节点。不同来源可能有同名节点，sing-box 要求 tag 唯一，重名的加上来源名
   List<Map<String, dynamic>> _mergedNodes(Profile merged) {
     final used = <String>{};
     final result = <Map<String, dynamic>>[];
+    _mergedOrigins.clear();
     for (final id in merged.sources) {
       for (final source in profiles.where((e) => e.id == id)) {
         for (final node in source.activeNodes) {
@@ -161,10 +195,32 @@ class CoreManager extends ChangeNotifier {
           final unique = used.add(tag) ? tag : '${source.name} $tag';
           used.add(unique);
           result.add({...node, 'tag': unique});
+          _mergedOrigins[unique] = (source, tag);
         }
       }
     }
     return result;
+  }
+
+  /// 节点按配置分组。合并配置按来源分，其余就是一组
+  List<NodeGroup> get nodeGroups {
+    final profile = activeProfile;
+    if (profile == null) return const [];
+    final tags = listedNodes.map((e) => e['tag'].toString());
+    if (!profile.isMerged) return [NodeGroup(profile, tags.toList())];
+    final groups = <Profile, List<String>>{};
+    for (final tag in tags) {
+      (groups[_mergedOrigins[tag]!.$1] ??= []).add(tag);
+    }
+    return [for (final entry in groups.entries) NodeGroup(entry.key, entry.value)];
+  }
+
+  /// 节点的来历：所在的配置和它在那份配置里的 tag
+  (Profile, String)? _originOf(String tag) {
+    final profile = activeProfile;
+    if (profile == null) return null;
+    listedNodes;
+    return profile.isMerged ? _mergedOrigins[tag] : (profile, tag);
   }
 
   /// 当前选中的节点 tag，空表示自动选择
@@ -187,6 +243,13 @@ class CoreManager extends ChangeNotifier {
     settings = await store.loadSettings();
     profiles = await store.loadProfiles();
     _nodes = null;
+    (await store.loadLatency()).forEach((tag, delay) {
+      if (delay < 0) {
+        failedNodes.add(tag);
+      } else {
+        delays[tag] = delay;
+      }
+    });
     _states = platform.states.listen(_onState);
     _links = platform.links.listen(_onLink);
     final link = await platform.takePendingLink();
@@ -706,7 +769,6 @@ class CoreManager extends ChangeNotifier {
 
   Future<void> setActiveProfile(String id) async {
     settings.activeProfileId = id;
-    delays.clear();
     _nodes = null;
     await store.saveSettings(settings);
     await _applyConfig();
@@ -720,7 +782,6 @@ class CoreManager extends ChangeNotifier {
     _nodes = null;
     if (wasActive) {
       settings.activeProfileId = profiles.isEmpty ? null : profiles.first.id;
-      delays.clear();
     }
     await store.saveProfiles(profiles);
     await store.saveSettings(settings);
@@ -739,55 +800,209 @@ class CoreManager extends ChangeNotifier {
 
   // ---- 节点 ----
 
+  static const int _recentLimit = 5;
+
   Future<void> selectNode(String tag) async {
     final profile = activeProfile;
     if (profile == null) return;
     settings.selectedNodes[profile.id] = tag;
+    if (listedNodes.any((e) => e['tag'] == tag)) {
+      settings.recentNodes = [tag, ...settings.recentNodes.where((e) => e != tag)].take(_recentLimit).toList();
+    }
     await store.saveSettings(settings);
     if (isRunning) await api.select(RuleTarget.selected, tag);
+    notifyListeners();
+  }
+
+  Future<void> clearRecentNodes() async {
+    settings.recentNodes = [];
+    await store.saveSettings(settings);
     notifyListeners();
   }
 
   Future<void> toggleFavorite(String tag) async {
     if (!settings.favorites.remove(tag)) settings.favorites.add(tag);
     await store.saveSettings(settings);
+    // 自动选择只在收藏里挑时，收藏变了配置也变了
+    if (settings.autoPreferFavorites) _markReload();
     notifyListeners();
   }
 
-  /// 测当前配置所有节点的延迟。内核没运行时无法测
-  Future<void> testLatency() async {
-    if (!isRunning || testing) return;
-    testing = true;
+  void _markReload() {
+    if (isRunning) needsReload = true;
+  }
+
+  static String endpointOf(Map<String, dynamic> node) => '${node['type']};${node['server']};${node['server_port']}';
+
+  bool isDisabled(Map<String, dynamic> node) => settings.disabledNodes.contains(endpointOf(node));
+
+  /// 禁用节点。所有配置里指向同一个地址的节点一起生效，要重新加载才影响内核
+  Future<void> setNodeDisabled(Map<String, dynamic> node, bool disabled) async {
+    final endpoint = endpointOf(node);
+    settings.disabledNodes = {...settings.disabledNodes}..removeWhere((e) => e == endpoint);
+    if (disabled) settings.disabledNodes = {...settings.disabledNodes, endpoint};
+    _enabledFrom = null;
+    await store.saveSettings(settings);
+    _markReload();
     notifyListeners();
+  }
+
+  /// 节点改完后保存。不马上重载：连着改几个时不用反复断开连接
+  Future<void> _saveNodes(Profile profile) async {
+    _nodes = null;
+    await store.saveProfiles(profiles);
+    if (_usesProfile(profile)) _markReload();
+    notifyListeners();
+  }
+
+  /// 删除节点。订阅里的要记下来，否则更新后又回来了
+  Future<void> removeNode(String tag) async {
+    final origin = _originOf(tag);
+    if (origin == null) return;
+    final (profile, original) = origin;
+    if (profile.isSubscription) {
+      profile.removedNodes = {...profile.removedNodes, original};
+    } else {
+      profile.nodes = profile.nodes.where((e) => e['tag'] != original).toList();
+    }
+    await _saveNodes(profile);
+  }
+
+  /// 改节点。[tag] 是原来的名字，新名字重复时抛 [DuplicateProfileException]
+  Future<void> updateNode(String tag, Outbound node) async {
+    final origin = _originOf(tag);
+    if (origin == null) return;
+    final (profile, original) = origin;
+    final renamed = node['tag'].toString();
+    if (renamed != original &&
+        (ProfileParser.reservedTags.contains(renamed) || profile.nodes.any((e) => e['tag'] == renamed))) {
+      throw const DuplicateProfileException('已经有同名的节点了');
+    }
+    profile.nodes = [for (final item in profile.nodes) item['tag'] == original ? node : item];
+    if (renamed != tag) _renameNode(tag, renamed);
+    await _saveNodes(profile);
+  }
+
+  void _renameNode(String from, String to) {
+    settings.selectedNodes.updateAll((_, value) => value == from ? to : value);
+    if (settings.favorites.remove(from)) settings.favorites.add(to);
+    settings.recentNodes = [for (final item in settings.recentNodes) item == from ? to : item];
+    settings.chain = [for (final item in settings.chain) item == from ? to : item];
+    final delay = delays.remove(from);
+    if (delay != null) delays[to] = delay;
+    if (failedNodes.remove(from)) failedNodes.add(to);
+  }
+
+  /// 往本地配置里加节点。[content] 是分享链接或 sing-box 的节点 JSON，读不懂时抛 [FormatException]
+  Future<int> addNodes(Profile profile, String content) async {
+    final added = ProfileParser.parse(content).outbounds;
+    if (added.isEmpty) throw const FormatException('no nodes');
+    ProfileParser.uniqueTags(added, taken: profile.nodes.map((e) => e['tag'].toString()).toSet());
+    profile.nodes = [...profile.nodes, ...added];
+    await _saveNodes(profile);
+    return added.length;
+  }
+
+  /// 新建没有节点的本地配置，节点之后手动添加
+  Future<Profile> createLocalProfile(String name) async {
+    final text = name.trim();
+    if (text.isEmpty) throw const DuplicateProfileException('请填写名称');
+    if (profiles.any((e) => e.name == text)) throw const DuplicateProfileException('已经有同名的配置了');
+    final profile = Profile(id: DateTime.now().microsecondsSinceEpoch.toString(), name: text, updatedAt: DateTime.now());
+    profiles = [...profiles, profile];
+    settings.activeProfileId ??= profile.id;
+    await store.saveProfiles(profiles);
+    await store.saveSettings(settings);
+    notifyListeners();
+    return profile;
+  }
+
+  /// 同时测的节点数，和内核自己测组时一样
+  static const int _testConcurrency = 10;
+
+  /// 测节点延迟，[tags] 为空时测全部。[connectFirst] 时没连接就先连上：延迟要经过内核才测得出来。
+  /// 逐个测而不是整组一起：这样每个节点都能显示自己的进度，失败的也知道是谁
+  Future<void> testLatency({Iterable<String>? tags, bool connectFirst = false}) async {
+    if (connectFirst && state == CoreState.stopped) await connect();
+    if (!isRunning) return;
+
+    final all = nodes.map((e) => e['tag'].toString()).toList();
+    final batch = (tags ?? all).where((e) => all.contains(e) && !testingNodes.contains(e)).toList();
+    if (batch.isEmpty) return;
+
+    testingNodes.addAll(batch);
+    notifyListeners();
+    // 节点多时结果来得很快，一秒刷一次界面就够了
+    final refresh = Timer.periodic(const Duration(seconds: 1), (_) => notifyListeners());
+    final queue = batch.reversed.toList();
+    Future<void> worker() async {
+      while (queue.isNotEmpty && isRunning) {
+        final tag = queue.removeLast();
+        _recordDelay(tag, await api.delay(tag, url: settings.testUrl));
+        testingNodes.remove(tag);
+      }
+    }
+
     try {
-      final result = await api.groupDelay(RuleTarget.selected, url: settings.testUrl);
-      delays
-        ..clear()
-        ..addAll(result);
-      await _removeFailedNodes();
+      await Future.wait(List.generate(_testConcurrency, (_) => worker()));
+      if (tags == null) {
+        _forgetGoneNodes();
+        await _removeFailedNodes(batch);
+      }
+      await _saveLatency();
+      _refreshAutoGroup();
     } finally {
-      testing = false;
+      refresh.cancel();
+      testingNodes.removeAll(batch);
       notifyListeners();
     }
+  }
+
+  void _recordDelay(String tag, int? delay) {
+    if (delay == null) {
+      delays.remove(tag);
+      failedNodes.add(tag);
+    } else {
+      delays[tag] = delay;
+      failedNodes.remove(tag);
+    }
+  }
+
+  /// 所有配置里都没有的节点不用留着，别的配置的结果还有用
+  void _forgetGoneNodes() {
+    final known = {
+      for (final profile in profiles) ...profile.nodes.map((e) => e['tag'].toString()),
+      ...listedNodes.map((e) => e['tag'].toString()),
+    };
+    delays.removeWhere((tag, _) => !known.contains(tag));
+    failedNodes.removeWhere((tag) => !known.contains(tag));
+  }
+
+  Future<void> _saveLatency() =>
+      store.saveLatency({...delays, for (final tag in failedNodes) tag: -1});
+
+  /// 自动选择组只看自己测的结果，要让它重测一轮才会换节点
+  void _refreshAutoGroup() {
+    final selected = selectedNode ?? RuleTarget.auto;
+    if (!settings.autoUpdateAfterTest || selected != RuleTarget.auto || !isRunning) return;
+    unawaited(api.groupDelay(RuleTarget.auto, url: settings.testUrl).then((_) {}, onError: (_) {}));
   }
 
   static const int _removeAttempts = 3;
 
   /// 自动移除失败节点，一个节点最多试 3 次。全部失败时不动：那多半是本机断网了
-  Future<void> _removeFailedNodes() async {
+  Future<void> _removeFailedNodes(List<String> tested) async {
     final profile = activeProfile;
-    if (profile == null || profile.isMerged || !profile.autoRemoveFailed || delays.isEmpty) return;
+    if (profile == null || profile.isMerged || !profile.autoRemoveFailed) return;
 
-    var failed = nodes.map((e) => e['tag'].toString()).where((tag) => !delays.containsKey(tag)).toList();
+    var failed = tested.where(failedNodes.contains).toList();
+    if (failed.length == tested.length) return;
     for (var attempt = 1; attempt < _removeAttempts && failed.isNotEmpty; attempt++) {
       final stillFailing = <String>[];
       for (final tag in failed) {
         final delay = await api.delay(tag, url: settings.testUrl);
-        if (delay == null) {
-          stillFailing.add(tag);
-        } else {
-          delays[tag] = delay;
-        }
+        _recordDelay(tag, delay);
+        if (delay == null) stillFailing.add(tag);
       }
       failed = stillFailing;
     }

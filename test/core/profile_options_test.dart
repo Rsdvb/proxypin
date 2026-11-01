@@ -116,6 +116,7 @@ class _Api extends ClashApi {
   @override
   Future<int?> delay(String node, {required String url, int timeoutMs = 5000}) async {
     asked.add(node);
+    if (group.containsKey(node)) return group[node];
     final answers = retries[node];
     return answers == null || answers.isEmpty ? null : answers.removeAt(0);
   }
@@ -559,7 +560,7 @@ rules:
         await manager.testLatency();
 
         expect(profile.removedNodes, {'美国 03'});
-        expect(api.asked.where((e) => e == '美国 03'), hasLength(2), reason: 'two retries after the group test');
+        expect(api.asked.where((e) => e == '美国 03'), hasLength(3), reason: 'the test, then two retries');
         expect(api.asked.where((e) => e == '日本 02'), hasLength(2));
         expect(manager.delays, containsPair('日本 02', 80));
       });

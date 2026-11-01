@@ -65,7 +65,8 @@ class ProfileParser {
       return _clashProxies(json);
     }
 
-    final items = json['outbounds'];
+    // 单个节点，手动添加时常见
+    final items = json['outbounds'] ?? (json['type'] != null && json['tag'] != null ? [json] : null);
     if (items is! List) throw const FormatException('no outbounds');
     final outbounds = <Outbound>[];
     var skipped = 0;
@@ -123,9 +124,11 @@ class ProfileParser {
     return ParsedProfile(_uniqueTags(outbounds), skipped);
   }
 
-  /// sing-box 要求 tag 唯一，而订阅里经常有同名节点
-  static List<Outbound> _uniqueTags(List<Outbound> outbounds) {
-    final used = <String>{...reservedTags};
+  /// sing-box 要求 tag 唯一，而订阅里经常有同名节点。[taken] 是已经占用的名字
+  static List<Outbound> uniqueTags(List<Outbound> outbounds, {Set<String> taken = const {}}) => _uniqueTags(outbounds, taken);
+
+  static List<Outbound> _uniqueTags(List<Outbound> outbounds, [Set<String> taken = const {}]) {
+    final used = <String>{...reservedTags, ...taken};
     for (final outbound in outbounds) {
       final base = outbound['tag'].toString();
       var tag = base;

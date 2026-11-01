@@ -176,6 +176,11 @@ class _AutoSelectPageState extends State<AutoSelectPage> {
             value: settings.autoPreferFavorites,
             onChanged: (value) => setState(() => settings.autoPreferFavorites = value),
           ),
+          SwitchListTile(
+            title: const Text('手动测完延迟后换到最快的节点'),
+            value: settings.autoUpdateAfterTest,
+            onChanged: (value) => setState(() => settings.autoUpdateAfterTest = value),
+          ),
           ListTile(
             title: const Text('节点数上限'),
             subtitle: const Text('节点太多时只测前面这些'),

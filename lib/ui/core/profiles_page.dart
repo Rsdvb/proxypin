@@ -12,11 +12,39 @@ import 'package:qr_flutter/qr_flutter.dart';
 
 import 'connect_page.dart';
 import 'format.dart';
+import 'node_edit_page.dart';
 import 'profile_options.dart';
 
 /// 我的配置。点一下切换，长按拖动排序，其余操作在右侧菜单里
 class ProfilesPage extends StatelessWidget {
   const ProfilesPage({super.key});
+
+  /// 不经订阅，自己一个个添加节点
+  Future<void> _createLocal(BuildContext context) async {
+    final manager = CoreManager.instance;
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+    final controller = TextEditingController();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('新建空配置'),
+        content: TextField(controller: controller, autofocus: true, decoration: const InputDecoration(labelText: '名称')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
+          TextButton(onPressed: () => Navigator.pop(context, controller.text), child: const Text('确定')),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (name == null) return;
+    try {
+      final profile = await manager.createLocalProfile(name);
+      await navigator.push(MaterialPageRoute(builder: (_) => AddNodePage(profile: profile)));
+    } on DuplicateProfileException catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text(e.message)));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -32,6 +60,11 @@ class ProfilesPage extends StatelessWidget {
               onPressed: () =>
                   Navigator.of(context).push(MaterialPageRoute(builder: (_) => const MergeProfilesPage())),
             ),
+          IconButton(
+            tooltip: '新建空配置',
+            icon: const Icon(Icons.note_add_outlined),
+            onPressed: () => _createLocal(context),
+          ),
           IconButton(
             tooltip: '添加配置',
             icon: const Icon(Icons.add),
@@ -153,6 +186,7 @@ class _ProfileCardState extends State<_ProfileCard> {
                   'update' => _update(),
                   'qr' => _showQrCode(),
                   'copy' => _copyLink(),
+                  'node' => Navigator.of(context).push(MaterialPageRoute(builder: (_) => AddNodePage(profile: profile))),
                   'edit' => Navigator.of(context)
                       .push(MaterialPageRoute(builder: (_) => EditProfilePage(profile: profile))),
                   _ => _confirmRemove(),
@@ -163,6 +197,7 @@ class _ProfileCardState extends State<_ProfileCard> {
                     PopupMenuItem(value: 'qr', child: Text('二维码')),
                     PopupMenuItem(value: 'copy', child: Text('复制链接')),
                   ],
+                  if (!profile.isSubscription && !profile.isMerged) const PopupMenuItem(value: 'node', child: Text('添加节点')),
                   const PopupMenuItem(value: 'edit', child: Text('编辑')),
                   const PopupMenuItem(value: 'remove', child: Text('删除')),
                 ],

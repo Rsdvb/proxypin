@@ -348,6 +348,23 @@ class CoreSettings {
   /// 规则检测上次查的域名
   String ruleCheckDomain;
 
+  /// 禁用的节点，存 `类型;地址;端口`：换了配置或改了名字也还算同一个节点
+  Set<String> disabledNodes;
+
+  /// 最近选过的节点，新的在前
+  List<String> recentNodes;
+
+  /// 节点搜索的候选词，可以是关键词或正则
+  List<String> searchKeywords;
+  bool hideRecommendedNodes;
+  bool hideRecentNodes;
+  bool hideFavoriteNodes;
+  bool hideFailedNodes;
+  bool sortNodesByDelay;
+
+  /// 手动测完延迟后，让自动选择换到最快的节点
+  bool autoUpdateAfterTest;
+
   /// 分流都没命中时的去向
   String finalTarget;
 
@@ -414,6 +431,15 @@ class CoreSettings {
     this.testUrl = 'https://www.gstatic.com/generate_204',
     List<RuleGroup>? groups,
     this.ruleCheckDomain = 'google.com',
+    Set<String>? disabledNodes,
+    List<String>? recentNodes,
+    List<String>? searchKeywords,
+    this.hideRecommendedNodes = false,
+    this.hideRecentNodes = false,
+    this.hideFavoriteNodes = false,
+    this.hideFailedNodes = false,
+    this.sortNodesByDelay = false,
+    this.autoUpdateAfterTest = true,
     this.finalTarget = RuleTarget.selected,
     List<String>? chain,
     this.chainFront = true,
@@ -436,6 +462,9 @@ class CoreSettings {
         dns = dns ?? DnsSettings(),
         tunSettings = tunSettings ?? TunSettings(),
         bypassDomains = bypassDomains ?? [...defaultBypassDomains],
+        disabledNodes = disabledNodes ?? {},
+        recentNodes = recentNodes ?? [],
+        searchKeywords = searchKeywords ?? [],
         chain = chain ?? [],
         autoGroups = autoGroups ?? [],
         userAgents = userAgents ?? [],
@@ -483,6 +512,15 @@ class CoreSettings {
         testUrl: json['testUrl'] ?? 'https://www.gstatic.com/generate_204',
         groups: (json['groups'] as List?)?.map((e) => RuleGroup.fromJson(e)).toList(),
         ruleCheckDomain: json['ruleCheckDomain'] ?? 'google.com',
+        disabledNodes: (json['disabledNodes'] as List?)?.map((e) => e.toString()).toSet(),
+        recentNodes: (json['recentNodes'] as List?)?.map((e) => e.toString()).toList(),
+        searchKeywords: (json['searchKeywords'] as List?)?.map((e) => e.toString()).toList(),
+        hideRecommendedNodes: json['hideRecommendedNodes'] ?? false,
+        hideRecentNodes: json['hideRecentNodes'] ?? false,
+        hideFavoriteNodes: json['hideFavoriteNodes'] ?? false,
+        hideFailedNodes: json['hideFailedNodes'] ?? false,
+        sortNodesByDelay: json['sortNodesByDelay'] ?? false,
+        autoUpdateAfterTest: json['autoUpdateAfterTest'] ?? true,
         finalTarget: json['finalTarget'] ?? RuleTarget.selected,
         chain: (json['chain'] as List?)?.map((e) => e.toString()).toList(),
         chainFront: json['chainFront'] ?? true,
@@ -529,6 +567,15 @@ class CoreSettings {
         'testUrl': testUrl,
         'groups': groups,
         'ruleCheckDomain': ruleCheckDomain,
+        'disabledNodes': disabledNodes.toList(),
+        'recentNodes': recentNodes,
+        'searchKeywords': searchKeywords,
+        'hideRecommendedNodes': hideRecommendedNodes,
+        'hideRecentNodes': hideRecentNodes,
+        'hideFavoriteNodes': hideFavoriteNodes,
+        'hideFailedNodes': hideFailedNodes,
+        'sortNodesByDelay': sortNodesByDelay,
+        'autoUpdateAfterTest': autoUpdateAfterTest,
         'finalTarget': finalTarget,
         'chain': chain,
         'chainFront': chainFront,
@@ -559,6 +606,9 @@ class CoreStore {
 
   File get _profilesFile => File('${directory.path}/profiles.json');
 
+  /// 节点多时这张表不小，不放进设置里跟着每次保存
+  File get _latencyFile => File('${directory.path}/latency.json');
+
   Future<CoreSettings> loadSettings() async {
     final json = await _read(_settingsFile);
     return json is Map<String, dynamic> ? CoreSettings.fromJson(json) : CoreSettings();
@@ -568,6 +618,14 @@ class CoreStore {
     final json = await _read(_profilesFile);
     return json is List ? json.map((e) => Profile.fromJson(e)).toList() : [];
   }
+
+  /// 节点 tag -> 延迟（毫秒），不通的是 -1
+  Future<Map<String, int>> loadLatency() async {
+    final json = await _read(_latencyFile);
+    return json is Map ? json.map((key, value) => MapEntry(key.toString(), value as int)) : {};
+  }
+
+  Future<void> saveLatency(Map<String, int> latency) => _write(_latencyFile, latency);
 
   Future<void> saveSettings(CoreSettings settings) => _write(_settingsFile, settings);
 
