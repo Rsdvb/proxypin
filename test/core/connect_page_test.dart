@@ -144,6 +144,8 @@ void main() {
   });
 
   testWidgets('rule groups are saved once, on leaving the page', (tester) async {
+    tester.view.physicalSize = const Size(2400, 4800);
+    addTearDown(tester.view.resetPhysicalSize);
     manager.settings.groups = [RuleGroup(id: 'a', name: '分组 A', domainSuffixes: ['a.example'])];
     await tester.pumpWidget(MaterialApp(home: Builder(
       builder: (context) => TextButton(
@@ -166,5 +168,52 @@ void main() {
     await tester.runAsync(() => Future.delayed(const Duration(milliseconds: 50)));
 
     expect(manager.settings.groups.single.enabled, isFalse);
+  });
+
+  testWidgets('the rules tab saves when you switch away, because it is never closed', (tester) async {
+    tester.view.physicalSize = const Size(2400, 4800);
+    addTearDown(tester.view.resetPhysicalSize);
+    manager.settings.groups = [RuleGroup(id: 'a', name: '分组 A', domainSuffixes: ['a.example'])];
+    final tab = ValueNotifier(2);
+    addTearDown(tab.dispose);
+    await tester.pumpWidget(MaterialApp(home: RuleGroupsPage(visibleTab: tab)));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('分组 A'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('启用'));
+    await tester.pumpAndSettle();
+    expect(find.text('立即生效'), findsOneWidget);
+    expect(manager.settings.groups.single.enabled, isTrue);
+
+    tab.value = 0;
+    await tester.pumpAndSettle();
+    await tester.runAsync(() => Future.delayed(const Duration(milliseconds: 50)));
+
+    expect(manager.settings.groups.single.enabled, isFalse);
+    expect(find.text('立即生效'), findsNothing);
+  });
+
+  testWidgets('managing groups changes the list the rules page is holding', (tester) async {
+    tester.view.physicalSize = const Size(2400, 4800);
+    addTearDown(tester.view.resetPhysicalSize);
+    final groups = [RuleGroup(id: 'a', name: '分组 A', domainSuffixes: ['a.example'])];
+    var changes = 0;
+    await tester.pumpWidget(MaterialApp(home: ManageRuleGroupsPage(groups: groups, onChanged: () => changes++)));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byType(PopupMenuButton<VoidCallback>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('恢复默认'));
+    await tester.pumpAndSettle();
+
+    expect(groups.length, greaterThan(1));
+    expect(changes, 1);
+  });
+
+  test('a group says what is in it', () {
+    expect(ruleGroupSummary(RuleGroup(id: 'a', name: 'a', ruleSets: ['x', 'y'], domains: ['a.example'], ports: [443])),
+        '规则集 2 · 域名 1 · 端口 1');
+    expect(ruleGroupSummary(RuleGroup(id: 'a', name: 'a')), '还没有匹配内容');
   });
 }

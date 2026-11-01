@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show FontFeature;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -10,6 +11,7 @@ import 'package:proxypin/core/core_tools.dart';
 import 'package:proxypin/network/bin/configuration.dart';
 
 import 'connections_page.dart';
+import 'design.dart';
 import 'format.dart';
 
 /// 首页的数字。默认只显示速度，其余的用户自己选：
@@ -161,7 +163,7 @@ class _HomeStatsState extends State<HomeStats> with WidgetsBindingObserver {
     if (tiles.isEmpty) return const SizedBox.shrink();
     return LayoutBuilder(
       builder: (context, constraints) {
-        const gap = 8.0;
+        const gap = AppTheme.gap;
         final width = (constraints.maxWidth - gap) / 2;
         return Wrap(
           spacing: gap,
@@ -185,18 +187,18 @@ class _Tile extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Material(
-      color: theme.colorScheme.surfaceContainerLow,
-      borderRadius: BorderRadius.circular(12),
+      color: Palette.of(context).panel,
+      borderRadius: BorderRadius.circular(AppTheme.radius),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
         onLongPress: onLongPress,
         child: Padding(
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(label, style: theme.textTheme.bodySmall),
-            const SizedBox(height: 4),
-            Text(value, style: theme.textTheme.bodyMedium),
+            const SizedBox(height: 6),
+            Text(value, style: theme.textTheme.titleSmall?.copyWith(fontFeatures: const [FontFeature.tabularFigures()])),
           ]),
         ),
       ),

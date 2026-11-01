@@ -1,210 +1,346 @@
-import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:proxypin/core/core_config.dart';
 import 'package:proxypin/core/core_manager.dart';
 import 'package:proxypin/core/core_platform.dart';
-import 'package:proxypin/core/core_service.dart';
 import 'package:proxypin/core/profile.dart';
 import 'package:proxypin/core/rule_group.dart';
-import 'package:proxypin/network/bin/server.dart';
+import 'package:proxypin/core/windows_autostart.dart';
+import 'package:proxypin/network/bin/configuration.dart';
 import 'package:proxypin/network/components/host_filter.dart';
-import 'package:proxypin/utils/desktop_tray.dart';
 
-import 'decrypt_domains_page.dart';
+import 'connections_page.dart';
+import 'design.dart';
 import 'format.dart';
 import 'home_stats.dart';
-import 'more_page.dart';
-import 'nodes_page.dart';
+import 'logs_pages.dart';
 import 'profile_options.dart';
 import 'profiles_page.dart';
-import 'rule_groups_page.dart';
+import 'tools_pages.dart';
 
-/// 首页：一屏看完连接状态，常用操作都在这里，其余收进二级页面
-class ConnectPage extends StatefulWidget {
-  final ProxyServer proxyServer;
+/// 首页：连接状态和最常用的开关，打开就能看完
+class HomePage extends StatelessWidget {
+  static const double _twoColumns = 820;
 
-  const ConnectPage({super.key, required this.proxyServer});
+  final Configuration configuration;
 
-  @override
-  State<ConnectPage> createState() => _ConnectPageState();
-}
+  /// 跳到其他入口，下标见 ShellTab
+  final ValueChanged<int>? onOpenTab;
 
-class _ConnectPageState extends State<ConnectPage> {
-  late final Future<void> _ready = CoreService.start(widget.proxyServer).then((_) {
-    final pending = CoreManager.instance.pendingImport;
-    pending.addListener(_openPendingImport);
-    _openPendingImport();
-    if (Platform.isWindows) DesktopTrayManager.instance.coreReady();
-  });
+  const HomePage({super.key, required this.configuration, this.onOpenTab});
 
-  @override
-  void initState() {
-    super.initState();
-    _ready.ignore();
-  }
-
-  @override
-  void dispose() {
-    if (CoreManager.isReady) CoreManager.instance.pendingImport.removeListener(_openPendingImport);
-    super.dispose();
-  }
-
-  void _openPendingImport() {
-    final pending = CoreManager.instance.pendingImport;
-    final link = pending.value;
-    if (link == null || !mounted) return;
-    pending.value = null;
-    Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => AddProfilePage(initialContent: link.url, initialName: link.name, outboundDns: link.outboundDns),
-    ));
-  }
+  void _open(BuildContext context, Widget page) => Navigator.of(context).push(MaterialPageRoute(builder: (_) => page));
 
   @override
   Widget build(BuildContext context) {
+    final manager = CoreManager.instance;
     return Scaffold(
       body: SafeArea(
-        child: FutureBuilder<void>(
-          future: _ready,
-          builder: (context, snapshot) {
-            if (snapshot.hasError) {
-              return Center(child: Padding(padding: const EdgeInsets.all(24), child: Text('${snapshot.error}')));
+        child: ListenableBuilder(
+          listenable: manager,
+          builder: (context, _) => LayoutBuilder(builder: (context, constraints) {
+            final connection = [
+              _ConnectionCard(manager, onOpenNodes: () => onOpenTab?.call(1)),
+              const SizedBox(height: AppTheme.gap),
+              _profile(context, manager),
+            ];
+            final controls = [
+              _switches(context, manager),
+              if (manager.isRunning) ...[
+                const SizedBox(height: AppTheme.gap),
+                HomeStats(manager, configuration),
+              ],
+              const SizedBox(height: AppTheme.gap),
+              _shortcuts(context, manager),
+            ];
+            final banner = [
+              if (manager.needsReload) ...[
+                Panel(children: [
+                  InfoRow(
+                    icon: Icons.refresh,
+                    iconColor: Tone.warn,
+                    title: '配置已更新',
+                    subtitle: '重新加载后生效，现有连接会断开',
+                    onTap: manager.reloadConfig,
+                  ),
+                ]),
+                const SizedBox(height: AppTheme.gap),
+              ],
+            ];
+            if (constraints.maxWidth >= _twoColumns) {
+              return SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+                child: Column(children: [
+                  ...banner,
+                  Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Expanded(child: Column(children: connection)),
+                    const SizedBox(width: AppTheme.gap),
+                    Expanded(child: Column(children: controls)),
+                  ]),
+                ]),
+              );
             }
-            if (snapshot.connectionState != ConnectionState.done) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            return ListenableBuilder(
-              listenable: CoreManager.instance,
-              builder: (context, _) => _ConnectView(CoreManager.instance, widget.proxyServer),
-            );
-          },
+            return ContentColumn(children: [
+              const SizedBox(height: 10),
+              ...banner,
+              ...connection,
+              const SizedBox(height: AppTheme.gap),
+              ...controls,
+            ]);
+          }),
+        ),
+      ),
+    );
+  }
+
+  Widget _profile(BuildContext context, CoreManager manager) {
+    final profile = manager.activeProfile;
+    if (profile == null) {
+      return Panel(children: [
+        InfoRow(
+          icon: Icons.add,
+          title: '添加配置',
+          subtitle: '粘贴订阅链接或配置内容',
+          onTap: () => _open(context, const AddProfilePage()),
+        ),
+      ]);
+    }
+    return Panel(children: [
+      InkWell(
+        onTap: () => _open(context, const ProfilesPage()),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 6, 12),
+          child: Row(children: [
+            Expanded(child: ProfileSummary(profile)),
+            if (profile.isSubscription) _UpdateButton(manager, profile),
+          ]),
+        ),
+      ),
+    ]);
+  }
+
+  Widget _switches(BuildContext context, CoreManager manager) {
+    final settings = manager.settings;
+    final count = HostFilter.whitelist.list.length;
+    return Panel(children: [
+      InfoRow(
+        icon: Icons.lock_open,
+        iconColor: Tone.good,
+        title: 'HTTPS 解密',
+        subtitle: count == 0 ? '还没有要解密的域名' : '$count 个域名',
+        chevron: false,
+        onTap: () => onOpenTab?.call(3),
+        trailing: Switch(value: settings.capture, onChanged: manager.setCapture),
+      ),
+      if (Platform.isWindows) ...[
+        SwitchRow(
+          icon: Icons.settings_ethernet,
+          iconColor: Tone.teal,
+          title: '系统代理',
+          subtitle: settings.tun ? 'TUN 开启时不需要' : 'HTTP 和 SOCKS 端口 ${settings.mixedPort}',
+          value: settings.systemProxy && !settings.tun,
+          onChanged: settings.tun ? null : manager.setSystemProxy,
+        ),
+        SwitchRow(
+          icon: Icons.vpn_lock_outlined,
+          iconColor: Tone.violet,
+          title: 'TUN 模式',
+          subtitle: '接管所有程序的流量，需要管理员权限',
+          value: settings.tun,
+          onChanged: (value) => _setTun(context, manager, value),
+        ),
+      ],
+      InfoRow(
+        icon: Icons.alt_route,
+        iconColor: Theme.of(context).colorScheme.primary,
+        title: '分流',
+        subtitle: '${settings.groups.where((e) => e.enabled).length} 组规则',
+        onTap: () => onOpenTab?.call(2),
+      ),
+    ]);
+  }
+
+  Future<void> _setTun(BuildContext context, CoreManager manager, bool value) async {
+    if (value && !WindowsAdmin.isAdmin()) {
+      await showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('TUN 模式'),
+          content: const Text('TUN 模式需要管理员权限，请以管理员身份重新启动 RsProxy。'),
+          actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('知道了'))],
+        ),
+      );
+      return;
+    }
+    manager.settings.tun = value;
+    await manager.applySettings();
+  }
+
+  Widget _shortcuts(BuildContext context, CoreManager manager) {
+    final running = manager.isRunning;
+    return Panel(padding: const EdgeInsets.symmetric(vertical: 6), children: [
+      Row(children: [
+        _Shortcut(Icons.lan_outlined, '连接',
+            running ? () => _open(context, ConnectionsPage(configuration: configuration)) : null),
+        _Shortcut(Icons.speed, '测速', running ? () => _open(context, const SpeedTestPage()) : null),
+        _Shortcut(Icons.rule, '规则检测', running ? () => _open(context, const RuleCheckPage()) : null),
+        _Shortcut(Icons.article_outlined, '日志', running ? () => _open(context, const LogsPage()) : null),
+      ]),
+    ]);
+  }
+}
+
+class _Shortcut extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback? onTap;
+
+  const _Shortcut(this.icon, this.label, this.onTap);
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = Palette.of(context);
+    final color = onTap == null ? palette.faint : palette.ink;
+    return Expanded(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(10),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Icon(icon, size: 21, color: onTap == null ? palette.faint : Theme.of(context).colorScheme.primary),
+            const SizedBox(height: 6),
+            Text(label, style: TextStyle(fontSize: 12, color: color)),
+          ]),
         ),
       ),
     );
   }
 }
 
-class _ConnectView extends StatelessWidget {
+/// 首页最上面的大卡片。连上之后变成彩色，一眼能看出状态
+class _ConnectionCard extends StatelessWidget {
   final CoreManager manager;
-  final ProxyServer proxyServer;
+  final VoidCallback onOpenNodes;
 
-  const _ConnectView(this.manager, this.proxyServer);
-
-  void _open(BuildContext context, Widget page) {
-    Navigator.of(context).push(MaterialPageRoute(builder: (_) => page));
-  }
+  const _ConnectionCard(this.manager, {required this.onOpenNodes});
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 520),
-        child: ListView(padding: const EdgeInsets.fromLTRB(16, 20, 16, 16), children: [
-          _PowerButton(manager),
-          const SizedBox(height: 24),
-          if (manager.needsReload) ...[
-            _Section(children: [
-              ListTile(
-                leading: const Icon(Icons.refresh),
-                title: const Text('配置已更新'),
-                subtitle: const Text('重新加载后生效，现有连接会断开'),
-                onTap: manager.reloadConfig,
-              ),
-            ]),
-            const SizedBox(height: 12),
-          ],
-          _Section(children: [
-            _nodeTile(context),
-          ]),
-          const SizedBox(height: 12),
-          SegmentedButton<RouteMode>(
-            segments: const [
-              ButtonSegment(value: RouteMode.rule, label: Text('规则')),
-              ButtonSegment(value: RouteMode.global, label: Text('全局')),
-            ],
-            selected: {manager.settings.mode},
-            showSelectedIcon: false,
-            onSelectionChanged: (value) => manager.setMode(value.first),
-          ),
-          const SizedBox(height: 12),
-          _Section(children: [_profileTile(context)]),
-          const SizedBox(height: 12),
-          _Section(children: [
-            _decryptTile(context),
-            ListTile(
-              title: const Text('分流'),
-              subtitle: Text('${manager.settings.groups.where((e) => e.enabled).length} 组规则'),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => _open(context, const RuleGroupsPage()),
-            ),
-            if (Platform.isWindows)
-              SwitchListTile(
-                title: const Text('系统代理'),
-                subtitle: Text('HTTP 和 SOCKS 端口 ${manager.settings.mixedPort}'),
-                value: manager.settings.systemProxy,
-                onChanged: manager.setSystemProxy,
-              ),
-            ListTile(
-              title: const Text('更多'),
-              subtitle: const Text('连接、测速、DNS、TUN、备份、高级设置'),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => _open(context, MorePage(configuration: proxyServer.configuration)),
-            ),
-          ]),
-          if (manager.isRunning) ...[
-            const SizedBox(height: 12),
-            HomeStats(manager, proxyServer.configuration),
-          ],
-        ]),
-      ),
-    );
-  }
-
-  Widget _nodeTile(BuildContext context) {
+    final palette = Palette.of(context);
+    final accent = Theme.of(context).colorScheme.primary;
+    final state = manager.state;
+    final running = state == CoreState.running;
+    final ink = running ? Colors.white : palette.ink;
+    final soft = running ? Colors.white.withValues(alpha: 0.78) : palette.muted;
     final selected = manager.selectedNode;
     final delay = selected == null ? null : manager.delays[selected];
-    return ListTile(
-      leading: const Icon(Icons.public),
-      title: Text(nodeLabel(selected), maxLines: 1, overflow: TextOverflow.ellipsis),
-      subtitle: manager.activeProfile == null ? const Text('没有配置时所有流量直连') : Text('${manager.nodes.length} 个节点'),
-      trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-        if (delay != null) Text('$delay ms', style: TextStyle(color: delayColor(context, delay))),
-        const Icon(Icons.chevron_right),
-      ]),
-      onTap: () => _open(context, const NodesPage()),
-    );
-  }
+    final label = switch (state) {
+      CoreState.stopped => '未连接',
+      CoreState.starting => '正在连接',
+      CoreState.running => '已连接',
+      CoreState.stopping => '正在断开',
+    };
 
-  Widget _profileTile(BuildContext context) {
-    final profile = manager.activeProfile;
-    if (profile == null) {
-      return ListTile(
-        leading: const Icon(Icons.add),
-        title: const Text('添加配置'),
-        subtitle: const Text('粘贴订阅链接或配置内容'),
-        onTap: () => _open(context, const AddProfilePage()),
-      );
-    }
-    return InkWell(
-      onTap: () => _open(context, const ProfilesPage()),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 4, 12),
-        child: Row(children: [
-          Expanded(child: ProfileSummary(profile)),
-          if (profile.isSubscription) _UpdateButton(manager, profile),
-        ]),
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 240),
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(18),
+        color: running ? null : palette.panel,
+        gradient: running
+            ? LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [accent, Color.lerp(accent, const Color(0xFF3A2FB8), 0.55)!],
+              )
+            : null,
       ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(shape: BoxShape.circle, color: running ? Colors.white : palette.faint),
+          ),
+          const SizedBox(width: 8),
+          Text(label, style: TextStyle(fontSize: 13, color: soft)),
+        ]),
+        const SizedBox(height: 12),
+        Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+          Expanded(
+            child: InkWell(
+              borderRadius: BorderRadius.circular(8),
+              onTap: onOpenNodes,
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(nodeLabel(selected),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: ink, height: 1.25)),
+                const SizedBox(height: 4),
+                Text(
+                  [
+                    if (delay != null) '$delay ms',
+                    manager.activeProfile == null ? '没有配置时所有流量直连' : '${manager.nodes.length} 个节点',
+                  ].join(' · '),
+                  style: TextStyle(fontSize: 12.5, color: soft),
+                ),
+              ]),
+            ),
+          ),
+          const SizedBox(width: 12),
+          _PowerButton(manager),
+        ]),
+        const SizedBox(height: 16),
+        PillSwitch<RouteMode>(
+          onColor: running,
+          options: const {RouteMode.rule: '规则', RouteMode.global: '全局'},
+          value: manager.settings.mode,
+          onChanged: manager.setMode,
+        ),
+        if (manager.lastError != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 10),
+            child: Text(manager.lastError!, style: TextStyle(color: running ? Colors.white : Tone.bad, fontSize: 12)),
+          ),
+      ]),
     );
   }
+}
 
-  Widget _decryptTile(BuildContext context) {
-    final count = HostFilter.whitelist.list.length;
-    return ListTile(
-      title: const Text('HTTPS 解密'),
-      subtitle: Text(count == 0 ? '点这里添加要解密的域名' : '$count 个域名'),
-      onTap: () => _open(context, DecryptDomainsPage(configuration: proxyServer.configuration)),
-      trailing: Switch(value: manager.settings.capture, onChanged: manager.setCapture),
+class _PowerButton extends StatelessWidget {
+  final CoreManager manager;
+
+  const _PowerButton(this.manager);
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.primary;
+    final state = manager.state;
+    final running = state == CoreState.running;
+    final busy = state == CoreState.starting || state == CoreState.stopping;
+    return Semantics(
+      button: true,
+      label: running ? '断开' : '连接',
+      child: Material(
+        color: running ? Colors.white.withValues(alpha: 0.2) : accent,
+        shape: const CircleBorder(),
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: busy ? null : (running ? manager.disconnect : manager.connect),
+          child: SizedBox(
+            width: 60,
+            height: 60,
+            child: busy
+                ? const Padding(
+                    padding: EdgeInsets.all(19),
+                    child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white),
+                  )
+                : const Icon(Icons.power_settings_new, size: 28, color: Colors.white),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -261,12 +397,19 @@ class ProfileSummary extends StatelessWidget {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Text(profile.name, style: theme.textTheme.titleMedium, maxLines: 1, overflow: TextOverflow.ellipsis),
       if (hasUsage) ...[
+        const SizedBox(height: 10),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(3),
+          child: LinearProgressIndicator(
+            value: (info.used / info.total).clamp(0, 1).toDouble(),
+            minHeight: 5,
+            backgroundColor: Palette.of(context).sunken,
+          ),
+        ),
         const SizedBox(height: 8),
-        LinearProgressIndicator(value: (info.used / info.total).clamp(0, 1).toDouble(), minHeight: 4),
-        const SizedBox(height: 6),
         Text.rich(TextSpan(style: theme.textTheme.bodySmall, children: [
           TextSpan(
-            text: '↑ ${formatBytes(info.upload)} ↓ ${formatBytes(info.download)} / ${formatBytes(info.total)}',
+            text: '已用 ${formatBytes(info.used)} / ${formatBytes(info.total)}',
             style: info.used >= info.total ? TextStyle(color: theme.colorScheme.error) : null,
           ),
           if (info.expire != null)
@@ -282,75 +425,6 @@ class ProfileSummary extends StatelessWidget {
   }
 }
 
-class _Section extends StatelessWidget {
-  final List<Widget> children;
-
-  const _Section({required this.children});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Material(
-      color: theme.colorScheme.surfaceContainerLow,
-      borderRadius: BorderRadius.circular(12),
-      clipBehavior: Clip.antiAlias,
-      child: Column(mainAxisSize: MainAxisSize.min, children: children),
-    );
-  }
-}
-
-class _PowerButton extends StatelessWidget {
-  final CoreManager manager;
-
-  const _PowerButton(this.manager);
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final state = manager.state;
-    final running = state == CoreState.running;
-    final busy = state == CoreState.starting || state == CoreState.stopping;
-    final color = running ? theme.colorScheme.primary : theme.colorScheme.surfaceContainerHighest;
-    final label = switch (state) {
-      CoreState.stopped => '未连接',
-      CoreState.starting => '正在连接',
-      CoreState.running => '已连接',
-      CoreState.stopping => '正在断开',
-    };
-
-    return Column(children: [
-      Semantics(
-        button: true,
-        label: running ? '断开' : '连接',
-        child: Material(
-          color: color,
-          shape: const CircleBorder(),
-          child: InkWell(
-            customBorder: const CircleBorder(),
-            onTap: busy ? null : (running ? manager.disconnect : manager.connect),
-            child: SizedBox(
-              width: 112,
-              height: 112,
-              child: busy
-                  ? const Padding(padding: EdgeInsets.all(40), child: CircularProgressIndicator(strokeWidth: 3))
-                  : Icon(Icons.power_settings_new,
-                      size: 48, color: running ? theme.colorScheme.onPrimary : theme.colorScheme.onSurfaceVariant),
-            ),
-          ),
-        ),
-      ),
-      const SizedBox(height: 12),
-      Text(label, style: theme.textTheme.titleMedium),
-      if (manager.lastError != null)
-        Padding(
-          padding: const EdgeInsets.only(top: 6),
-          child: Text(manager.lastError!,
-              textAlign: TextAlign.center, style: TextStyle(color: theme.colorScheme.error, fontSize: 12)),
-        ),
-    ]);
-  }
-}
-
 /// 节点 tag 的显示名
 String nodeLabel(String? tag) => switch (tag) {
       null || 'auto' => '自动选择',
@@ -361,7 +435,7 @@ String nodeLabel(String? tag) => switch (tag) {
     };
 
 Color delayColor(BuildContext context, int delay) {
-  if (delay < 200) return Colors.green;
-  if (delay < 500) return Colors.orange;
-  return Theme.of(context).colorScheme.error;
+  if (delay < 200) return Tone.good;
+  if (delay < 500) return Tone.warn;
+  return Tone.bad;
 }

@@ -4,10 +4,12 @@ import 'package:window_manager/window_manager.dart';
 
 class WindowsToolbar extends StatefulWidget {
   final Widget? title;
+  final bool showIcon;
 
   const WindowsToolbar({
     super.key,
     this.title,
+    this.showIcon = true,
   });
 
   @override
@@ -31,14 +33,16 @@ class _WindowsToolbarState extends State<WindowsToolbar> with WindowListener {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        SizedBox(width: 7),
-        Padding(
-            padding: EdgeInsets.only(top: 2),
-            child: Center(
-                child: Image.asset(
-              'assets/icon_foreground.png',
-              width: 32,
-            ))),
+        if (widget.showIcon) ...[
+          SizedBox(width: 7),
+          Padding(
+              padding: EdgeInsets.only(top: 2),
+              child: Center(
+                  child: Image.asset(
+                'assets/icon_foreground.png',
+                width: 32,
+              ))),
+        ],
         // title 内部含 Spacer（flex 子节点），必须给有界宽度，否则整个 title 布局失败不渲染；
         // 用 Expanded 让它占满标题栏剩余宽度，并整体作为窗口拖动区域（按钮点击不受影响）
         Expanded(child: _ToolbarDragArea(child: widget.title ?? const SizedBox())),

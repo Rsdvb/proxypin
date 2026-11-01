@@ -19,10 +19,18 @@ class CoreService {
     if (CoreManager.isReady) return;
 
     final support = await getApplicationSupportDirectory();
+    final mitm = ProxyServerMitm(proxyServer);
+    // 证书安装页由它提供，解密没开时也要在，所以先于自动连接启动
+    try {
+      await proxyServer.start();
+    } on SocketException catch (e) {
+      logger.e('proxy server failed to start: $e');
+    }
+
     final manager = CoreManager(
       platform: CorePlatform.current(),
       store: CoreStore(Directory('${support.path}${Platform.pathSeparator}core_data')),
-      mitm: ProxyServerMitm(proxyServer),
+      mitm: mitm,
       alwaysTun: Platform.isIOS,
       loadRuleSet: _bundledRuleSet,
     );

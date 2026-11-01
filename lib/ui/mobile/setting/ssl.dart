@@ -29,7 +29,7 @@ import 'package:proxypin/network/util/logger.dart';
 import 'package:proxypin/storage/local_storage.dart';
 import 'package:proxypin/storage/shared_preference_keys.dart';
 import 'package:proxypin/ui/component/utils.dart';
-import 'package:proxypin/ui/mobile/menu/drawer.dart';
+import 'package:proxypin/ui/mobile/menu/bottom_navigation.dart';
 import 'package:proxypin/ui/mobile/setting/client_cert.dart';
 import 'package:proxypin/utils/lang.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -109,18 +109,6 @@ class _MobileSslState extends State<MobileSslWidget> {
                 : CertStatusCard(installed: _installed, trusted: _trusted, proxyServer: widget.proxyServer),
           // SSL toggle and install
           section([
-            SwitchListTile(
-                hoverColor: Colors.transparent,
-                title: Text(localizations.enabledHttps),
-                value: widget.proxyServer.enableSsl,
-                onChanged: (val) {
-                  widget.proxyServer.enableSsl = val;
-                  CertificateManager.cleanCache();
-                  setState(() {
-                    widget.proxyServer.configuration.flushConfig();
-                  });
-                }),
-            Divider(height: 0, thickness: 0.3, color: dividerColor),
             ListTile(
                 title: Text(localizations.installRootCa),
                 trailing: const Icon(Icons.keyboard_arrow_right),

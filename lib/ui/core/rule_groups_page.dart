@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:proxypin/core/core_manager.dart';
@@ -11,12 +12,38 @@ import 'package:proxypin/utils/platform.dart';
 
 import 'auto_select_page.dart';
 import 'connect_page.dart';
+import 'design.dart';
 import 'rule_group_edit_page.dart';
 import 'rule_sets_page.dart';
+import 'tools_pages.dart';
 
-/// 分流组。在副本上改，离开页面时一次保存，避免每动一下就重启内核
+/// 一个分流组里有什么，列表上一眼看到
+String ruleGroupSummary(RuleGroup group) {
+  final json = group.toJson();
+  int count(List<String> keys) => keys.fold(0, (sum, key) => sum + ((json[key] as List?)?.length ?? 0));
+  final parts = [
+    if (count(const ['ruleSets', 'ruleSetUrls']) > 0) '规则集 ${count(const ['ruleSets', 'ruleSetUrls'])}',
+    if (count(const ['domainSuffixes', 'domains', 'domainKeywords', 'domainRegexes']) > 0)
+      '域名 ${count(const ['domainSuffixes', 'domains', 'domainKeywords', 'domainRegexes'])}',
+    if (count(const ['ipCidrs']) > 0) 'IP ${count(const ['ipCidrs'])}',
+    if (count(const ['ports', 'portRanges']) > 0) '端口 ${count(const ['ports', 'portRanges'])}',
+    if (count(const ['processNames', 'processPaths', 'processDirs']) > 0)
+      '进程 ${count(const ['processNames', 'processPaths', 'processDirs'])}',
+    if (count(const ['wifiSsids', 'wifiBssids']) > 0) 'Wi-Fi ${count(const ['wifiSsids', 'wifiBssids'])}',
+    if (count(const ['networks', 'protocols', 'networkTypes']) > 0)
+      '协议 ${count(const ['networks', 'protocols', 'networkTypes'])}',
+  ];
+  return parts.isEmpty ? '还没有匹配内容' : parts.join(' · ');
+}
+
+/// 分流：每一行是“什么流量 → 走哪里”，点一下就能改去向。
+/// 增删、排序和改匹配内容放在“管理”里，平时用不到
 class RuleGroupsPage extends StatefulWidget {
-  const RuleGroupsPage({super.key});
+  /// 分流是常驻的入口，不会被关掉，所以切走时保存
+  final ValueListenable<int>? visibleTab;
+  final int ownTab;
+
+  const RuleGroupsPage({super.key, this.visibleTab, this.ownTab = 2});
 
   @override
   State<RuleGroupsPage> createState() => _RuleGroupsPageState();
@@ -37,24 +64,43 @@ class _RuleGroupsPageState extends State<RuleGroupsPage> {
 
   List<String> get _nodes => _manager.nodes.map((e) => e['tag'].toString()).toList();
 
+  Iterable<String> get _usableGroups =>
+      _manager.settings.autoGroups.where((e) => e.membersIn(_nodes).isNotEmpty).map((e) => e.tag);
+
+  @override
+  void initState() {
+    super.initState();
+    widget.visibleTab?.addListener(_onTabChanged);
+  }
+
+  @override
+  void dispose() {
+    widget.visibleTab?.removeListener(_onTabChanged);
+    _save();
+    super.dispose();
+  }
+
+  void _onTabChanged() {
+    if (widget.visibleTab!.value != widget.ownTab) return _apply();
+    // 连接页也能往这里加规则，切回来时要看到
+    if (!_changed) setState(() => _groups = _copy(_manager.settings.groups));
+  }
+
+  /// 在副本上改，一次保存：每动一下就重启内核，连接会一直断
+  void _save() {
+    if (!_changed) return;
+    _changed = false;
+    _manager.settings.groups = _copy(_groups);
+    _manager.applySettings();
+  }
+
+  void _apply() => setState(_save);
+
   void _change(VoidCallback change) {
     setState(() {
       change();
       _changed = true;
     });
-  }
-
-  void _show(String message) {
-    if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
-  }
-
-  @override
-  void dispose() {
-    if (_changed) {
-      _manager.settings.groups = _groups;
-      _manager.applySettings();
-    }
-    super.dispose();
   }
 
   String _targetLabel(String target) => switch (target) {
@@ -69,17 +115,21 @@ class _RuleGroupsPageState extends State<RuleGroupsPage> {
   bool _isGone(String target) =>
       !RuleTarget.builtIn.contains(target) && !_nodes.contains(target) && !_usableGroups.contains(target);
 
-  Iterable<String> get _usableGroups =>
-      _manager.settings.autoGroups.where((e) => e.membersIn(_nodes).isNotEmpty).map((e) => e.tag);
+  Color _targetColor(String target) {
+    if (_isGone(target)) return Tone.bad;
+    return switch (target) {
+      RuleTarget.selected => Theme.of(context).colorScheme.primary,
+      RuleTarget.direct => Tone.good,
+      RuleTarget.block => Tone.bad,
+      RuleTarget.auto => Tone.violet,
+      _ when target.startsWith(RuleTarget.groupPrefix) => Tone.violet,
+      _ => Palette.of(context).muted,
+    };
+  }
 
-  Widget _targetText(String target, {bool enabled = true}) {
-    final theme = Theme.of(context);
-    final color = enabled && _isGone(target) ? theme.colorScheme.error : theme.colorScheme.onSurfaceVariant;
-    return ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 150),
-      child: Text(enabled ? _targetLabel(target) : '已关闭',
-          maxLines: 1, overflow: TextOverflow.ellipsis, style: theme.textTheme.bodyMedium?.copyWith(color: color)),
-    );
+  Widget _targetTag(String target, {bool enabled = true}) {
+    if (!enabled) return Tag('已关闭', color: Palette.of(context).faint);
+    return Tag(_targetLabel(target), color: _targetColor(target));
   }
 
   /// 去向选项：常用的几个直接点，节点进单独的页面搜
@@ -94,12 +144,14 @@ class _RuleGroupsPageState extends State<RuleGroupsPage> {
         RuleTarget.block,
       ])
         ListTile(
+          leading: Icon(Icons.circle, size: 10, color: _targetColor(choice)),
           title: Text(_targetLabel(choice)),
-          trailing: current == choice ? const Icon(Icons.check) : null,
+          trailing: current == choice ? Icon(Icons.check, color: Theme.of(context).colorScheme.primary) : null,
           onTap: () => Navigator.pop(context, choice),
         ),
       if (nodes.isNotEmpty)
         ListTile(
+          leading: Icon(Icons.circle, size: 10, color: Palette.of(context).muted),
           title: const Text('选择节点'),
           subtitle: nodes.contains(current) ? Text(_targetLabel(current), maxLines: 1, overflow: TextOverflow.ellipsis) : null,
           trailing: const Icon(Icons.chevron_right),
@@ -115,10 +167,21 @@ class _RuleGroupsPageState extends State<RuleGroupsPage> {
     final action = await showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
+      useRootNavigator: true,
       builder: (context) => SafeArea(
         child: ConstrainedBox(
           constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.8),
           child: ListView(shrinkWrap: true, children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(group.name, style: Theme.of(context).textTheme.titleLarge),
+                const SizedBox(height: 2),
+                Text(ruleGroupSummary(group), style: Theme.of(context).textTheme.bodySmall),
+              ]),
+            ),
+            ..._targetChoices(context, group.target),
+            const Divider(height: 12),
             ListTile(
               leading: const Icon(Icons.edit_outlined),
               title: const Text('编辑规则'),
@@ -137,6 +200,7 @@ class _RuleGroupsPageState extends State<RuleGroupsPage> {
               onTap: () => Navigator.pop(context, _jsonAction),
             ),
             SwitchListTile(
+              secondary: const Icon(Icons.power_settings_new),
               title: const Text('启用'),
               value: group.enabled,
               onChanged: (value) {
@@ -144,8 +208,6 @@ class _RuleGroupsPageState extends State<RuleGroupsPage> {
                 Navigator.pop(context);
               },
             ),
-            const Divider(height: 1),
-            ..._targetChoices(context, group.target),
           ]),
         ),
       ),
@@ -172,6 +234,7 @@ class _RuleGroupsPageState extends State<RuleGroupsPage> {
     final current = _manager.settings.finalTarget;
     var target = await showModalBottomSheet<String>(
       context: context,
+      useRootNavigator: true,
       builder: (context) => SafeArea(child: ListView(shrinkWrap: true, children: _targetChoices(context, current))),
     );
     if (target == _nodeAction) target = await _pickNode(current);
@@ -204,6 +267,189 @@ class _RuleGroupsPageState extends State<RuleGroupsPage> {
         ],
       ),
     );
+  }
+
+  Future<void> _edit(RuleGroup group) async {
+    final result = await Navigator.of(context).push<RuleGroupEdit>(MaterialPageRoute(
+      builder: (_) => EditRuleGroupPage(
+        group: group,
+        otherNames: {for (final other in _groups) if (!identical(other, group)) other.name},
+      ),
+    ));
+    if (result == null) return;
+    _change(() {
+      if (result.remove) {
+        _groups.remove(group);
+      } else {
+        _groups[_groups.indexOf(group)] = result.group!;
+      }
+    });
+  }
+
+  Future<void> _openManage() async {
+    await Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => ManageRuleGroupsPage(groups: _groups, onChanged: () => _change(() {})),
+    ));
+    if (mounted) setState(() {});
+  }
+
+  /// 自动选择组和链式代理改的是设置本身，离开分流页时一起保存
+  Future<void> _openAutoSelect() async {
+    final renamed = await Navigator.of(context).push<Map<String, String>>(MaterialPageRoute(
+      builder: (_) => const AutoSelectPage(),
+    ));
+    _change(() {
+      final settings = _manager.settings;
+      settings.finalTarget = renamed?[settings.finalTarget] ?? settings.finalTarget;
+      for (final group in _groups) {
+        group.target = renamed?[group.target] ?? group.target;
+      }
+    });
+  }
+
+  Future<void> _openChain() async {
+    await Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ChainProxyPage()));
+    _change(() {});
+  }
+
+  Future<void> _openRuleSets() async {
+    await Navigator.of(context).push(MaterialPageRoute(builder: (_) => const RuleSetsPage()));
+    if (mounted) setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final settings = _manager.settings;
+    final missing = _manager.missingRuleSets.length;
+    final visible = settings.hideDisabledGroups ? _groups.where((e) => e.enabled).toList() : _groups;
+    final accent = Theme.of(context).colorScheme.primary;
+    return Scaffold(
+      appBar: AppBar(title: const Text('分流')),
+      bottomNavigationBar: _changed
+          ? SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                child: Row(children: [
+                  const Expanded(child: Text('有改动，切换页面时自动生效')),
+                  FilledButton(onPressed: _apply, child: const Text('立即生效')),
+                ]),
+              ),
+            )
+          : null,
+      body: ContentColumn(children: [
+        if (missing > 0) ...[
+          Panel(children: [
+            InfoRow(
+              icon: Icons.warning_amber,
+              iconColor: Tone.warn,
+              title: '$missing 个规则集还没下载成功',
+              subtitle: '对应的规则暂未生效',
+              onTap: _openRuleSets,
+            ),
+          ]),
+        ],
+        SectionLabel(
+          '分流规则',
+          hint: '从上到下匹配',
+          action: TextButton(onPressed: _openManage, child: const Text('管理')),
+        ),
+        Panel(children: [
+          SwitchRow(
+            title: '启用自定义分流组',
+            value: settings.groupsEnabled,
+            onChanged: (value) => _change(() => settings.groupsEnabled = value),
+          ),
+          if (settings.groupsEnabled)
+            for (final group in visible)
+              InfoRow(
+                key: ValueKey(group.id),
+                title: group.name,
+                subtitle: ruleGroupSummary(group),
+                enabled: group.enabled,
+                onTap: () => _openGroup(group),
+                trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                  if (group.dnsServer.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 6),
+                      child: Icon(Icons.dns_outlined, size: 15, color: Palette.of(context).muted),
+                    ),
+                  _targetTag(group.target, enabled: group.enabled),
+                ]),
+              ),
+        ]),
+        const SectionLabel('其余流量', hint: '上面都没有命中时走这里'),
+        Panel(children: [
+          InfoRow(title: '其余流量', onTap: _pickFinal, trailing: _targetTag(settings.finalTarget)),
+        ]),
+        const SectionLabel('基础规则'),
+        Panel(children: [
+          SwitchRow(
+            title: '私有网络直连',
+            subtitle: '局域网和本机地址不走节点',
+            value: settings.privateDirect,
+            onChanged: (value) => _change(() => settings.privateDirect = value),
+          ),
+          SwitchRow(
+            title: '机场分流规则',
+            subtitle: '使用订阅里自带的规则',
+            value: settings.providerRulesEnabled,
+            onChanged: (value) => _change(() => settings.providerRulesEnabled = value),
+          ),
+          SwitchRow(
+            title: '隐藏未启用的规则',
+            value: settings.hideDisabledGroups,
+            onChanged: (value) {
+              setState(() => settings.hideDisabledGroups = value);
+              _manager.saveUiSettings();
+            },
+          ),
+        ]),
+        const SectionLabel('规则来源和出站'),
+        Panel(children: [
+          InfoRow(icon: Icons.inventory_2_outlined, iconColor: accent, title: '规则集', onTap: _openRuleSets),
+          InfoRow(icon: Icons.auto_awesome_outlined, iconColor: Tone.violet, title: '自动选择组', onTap: _openAutoSelect),
+          InfoRow(
+            icon: Icons.link,
+            iconColor: Tone.teal,
+            title: '链式代理',
+            subtitle: settings.chain.isEmpty ? null : '${settings.chain.length} 个节点',
+            onTap: _openChain,
+          ),
+          InfoRow(
+            icon: Icons.rule,
+            iconColor: Tone.warn,
+            title: '规则检测',
+            subtitle: _manager.isRunning ? '看某个域名会走哪条规则' : '连接后可用',
+            enabled: _manager.isRunning,
+            onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const RuleCheckPage())),
+          ),
+        ]),
+      ]),
+    );
+  }
+}
+
+/// 管理分流组：增删、排序、导入导出
+class ManageRuleGroupsPage extends StatefulWidget {
+  final List<RuleGroup> groups;
+  final VoidCallback onChanged;
+
+  const ManageRuleGroupsPage({super.key, required this.groups, required this.onChanged});
+
+  @override
+  State<ManageRuleGroupsPage> createState() => _ManageRuleGroupsPageState();
+}
+
+class _ManageRuleGroupsPageState extends State<ManageRuleGroupsPage> {
+  List<RuleGroup> get _groups => widget.groups;
+
+  void _change(VoidCallback change) {
+    setState(change);
+    widget.onChanged();
+  }
+
+  void _show(String message) {
+    if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _edit(RuleGroup? group) async {
@@ -271,40 +517,17 @@ class _RuleGroupsPageState extends State<RuleGroupsPage> {
     _show('已导出');
   }
 
-  void _reset() => _change(() => _groups = RuleGroup.defaults());
-
-  /// 自动选择组和链式代理改的是设置本身，离开分流页时一起保存
-  Future<void> _openAutoSelect() async {
-    final renamed = await Navigator.of(context).push<Map<String, String>>(MaterialPageRoute(
-      builder: (_) => const AutoSelectPage(),
-    ));
-    _change(() {
-      final settings = _manager.settings;
-      settings.finalTarget = renamed?[settings.finalTarget] ?? settings.finalTarget;
-      for (final group in _groups) {
-        group.target = renamed?[group.target] ?? group.target;
-      }
-    });
-  }
-
-  Future<void> _openChain() async {
-    await Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ChainProxyPage()));
-    _change(() {});
-  }
-
-  Future<void> _openRuleSets() async {
-    await Navigator.of(context).push(MaterialPageRoute(builder: (_) => const RuleSetsPage()));
-    if (mounted) setState(() {});
-  }
+  void _reset() => _change(() {
+        _groups
+          ..clear()
+          ..addAll(RuleGroup.defaults());
+      });
 
   @override
   Widget build(BuildContext context) {
-    final settings = _manager.settings;
-    final theme = Theme.of(context);
-    final missing = _manager.missingRuleSets.length;
-    final visible = settings.hideDisabledGroups ? _groups.where((e) => e.enabled).toList() : _groups;
+    final palette = Palette.of(context);
     return Scaffold(
-      appBar: AppBar(title: const Text('分流'), actions: [
+      appBar: AppBar(title: const Text('管理分流组'), actions: [
         IconButton(tooltip: '添加分流组', icon: const Icon(Icons.add), onPressed: () => _edit(null)),
         PopupMenuButton<VoidCallback>(
           onSelected: (action) => action(),
@@ -316,92 +539,45 @@ class _RuleGroupsPageState extends State<RuleGroupsPage> {
           ],
         ),
       ]),
-      body: Column(children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-          child: Text('从上到下匹配，都没有命中时走最后的“其余流量”。长按拖动调整顺序。', style: theme.textTheme.bodySmall),
-        ),
-        if (missing > 0)
-          ListTile(
-            dense: true,
-            leading: Icon(Icons.warning_amber, color: theme.colorScheme.error),
-            title: Text('$missing 个规则集还没下载成功，对应的规则暂未生效'),
-            onTap: _openRuleSets,
-          ),
-        ExpansionTile(
-          title: const Text('分流开关'),
-          tilePadding: const EdgeInsets.symmetric(horizontal: 16),
-          children: [
-            ListTile(title: const Text('规则集'), trailing: const Icon(Icons.chevron_right), onTap: _openRuleSets),
-            ListTile(title: const Text('自动选择'), trailing: const Icon(Icons.chevron_right), onTap: _openAutoSelect),
-            ListTile(
-              title: const Text('链式代理'),
-              subtitle: settings.chain.isEmpty ? null : Text('${settings.chain.length} 个节点'),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: _openChain,
-            ),
-            SwitchListTile(
-              title: const Text('隐藏未启用的分流规则'),
-              value: settings.hideDisabledGroups,
-              onChanged: (value) {
-                setState(() => settings.hideDisabledGroups = value);
-                _manager.saveUiSettings();
-              },
-            ),
-            SwitchListTile(
-              title: const Text('私有网络直连'),
-              value: settings.privateDirect,
-              onChanged: (value) => _change(() => settings.privateDirect = value),
-            ),
-            SwitchListTile(
-              title: const Text('禁用机场分流规则'),
-              value: !settings.providerRulesEnabled,
-              onChanged: (value) => _change(() => settings.providerRulesEnabled = !value),
-            ),
-            SwitchListTile(
-              title: const Text('自定义分流组'),
-              value: settings.groupsEnabled,
-              onChanged: (value) => _change(() => settings.groupsEnabled = value),
-            ),
-          ],
-        ),
-        Expanded(
+      body: Align(
+        alignment: Alignment.topCenter,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: AppPage.contentWidth),
           child: ReorderableListView.builder(
-            itemCount: visible.length,
-            footer: ListTile(
-              title: const Text('其余流量'),
-              subtitle: const Text('上面都没有命中时走这里'),
-              trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-                _targetText(settings.finalTarget),
-                const Icon(Icons.chevron_right),
-              ]),
-              onTap: _pickFinal,
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+            header: Padding(
+              padding: const EdgeInsets.fromLTRB(4, 0, 4, 10),
+              child: Text('拖动调整顺序，靠上的先匹配。点一下编辑匹配内容。', style: Theme.of(context).textTheme.bodySmall),
             ),
+            itemCount: _groups.length,
             onReorder: (oldIndex, newIndex) => _change(() {
-              final target = visible[newIndex > oldIndex ? newIndex - 1 : newIndex];
-              final item = visible[oldIndex];
-              _groups
-                ..remove(item)
-                ..insert(_groups.indexOf(target) + (newIndex > oldIndex ? 1 : 0), item);
+              _groups.insert(newIndex > oldIndex ? newIndex - 1 : newIndex, _groups.removeAt(oldIndex));
             }),
             itemBuilder: (context, index) {
-              final group = visible[index];
-              return ListTile(
+              final group = _groups[index];
+              return Padding(
                 key: ValueKey(group.id),
-                leading: group.dnsServer.isEmpty ? null : const Icon(Icons.dns_outlined, size: 18),
-                minLeadingWidth: 0,
-                title: Text(group.name,
-                    style: group.enabled ? null : TextStyle(color: theme.colorScheme.onSurfaceVariant)),
-                trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-                  _targetText(group.target, enabled: group.enabled),
-                  const Icon(Icons.chevron_right),
-                ]),
-                onTap: () => _openGroup(group),
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Material(
+                  color: palette.panel,
+                  borderRadius: BorderRadius.circular(12),
+                  clipBehavior: Clip.antiAlias,
+                  child: ListTile(
+                    leading: SizedBox(
+                      width: 22,
+                      child: Text('${index + 1}', textAlign: TextAlign.center, style: TextStyle(color: palette.faint, fontSize: 13)),
+                    ),
+                    title: Text(group.name),
+                    subtitle: Text(ruleGroupSummary(group), maxLines: 1, overflow: TextOverflow.ellipsis),
+                    trailing: Icon(Icons.drag_handle, color: palette.faint, size: 20),
+                    onTap: () => _edit(group),
+                  ),
+                ),
               );
             },
           ),
         ),
-      ]),
+      ),
     );
   }
 }
@@ -430,7 +606,7 @@ class _NodePickerPageState extends State<NodePickerPage> {
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
           child: TextField(
-            decoration: const InputDecoration(hintText: '搜索', prefixIcon: Icon(Icons.search), isDense: true),
+            decoration: const InputDecoration(hintText: '搜索', prefixIcon: Icon(Icons.search)),
             onChanged: (value) => setState(() => _query = value.trim()),
           ),
         ),

@@ -23,13 +23,11 @@ import 'package:flutter/material.dart';
 import 'package:proxypin/core/single_instance.dart';
 import 'package:proxypin/network/bin/configuration.dart';
 import 'package:proxypin/network/components/manager/environment_manager.dart';
-import 'package:proxypin/ui/component/chinese_font.dart';
 import 'package:proxypin/ui/component/multi_window_compat.dart';
-import 'package:proxypin/ui/component/utils.dart';
 import 'package:proxypin/ui/component/multi_window.dart';
 import 'package:proxypin/ui/configuration.dart';
-import 'package:proxypin/ui/desktop/desktop.dart';
-import 'package:proxypin/ui/mobile/mobile.dart';
+import 'package:proxypin/ui/core/app_shell.dart';
+import 'package:proxypin/ui/core/design.dart';
 import 'package:proxypin/utils/desktop_support.dart';
 import 'package:proxypin/utils/desktop_tray.dart';
 import 'package:proxypin/utils/navigator.dart';
@@ -86,19 +84,12 @@ void main(List<String> args) async {
   var configuration = Configuration.instance;
   // 预热环境变量,避免第一个请求命中时才 IO
   unawaited(EnvironmentManager.preload());
-  //移动端
-  if (Platforms.isMobile()) {
-    var appConfiguration = await instance;
-    runApp(FluentApp(MobileHomePage((await configuration), appConfiguration), appConfiguration));
-    return;
-  }
-
   var appConfiguration = await instance;
   if (Platforms.isDesktop()) {
     await DesktopSupport.initialize(appConfiguration);
   }
 
-  runApp(FluentApp(DesktopHomePage(await configuration, appConfiguration), appConfiguration));
+  runApp(FluentApp(AppShell(await configuration, appConfiguration), appConfiguration));
 }
 
 class FluentApp extends StatelessWidget {
@@ -116,98 +107,15 @@ class FluentApp extends StatelessWidget {
             title: 'RsProxy',
             debugShowCheckedModeBanner: false,
             navigatorKey: navigatorHelper.navigatorKey,
-            theme: theme(Brightness.light),
-            darkTheme: theme(Brightness.dark),
+            theme: AppTheme.build(Brightness.light, appConfiguration.themeColor),
+            darkTheme: AppTheme.build(Brightness.dark, appConfiguration.themeColor),
             themeMode: appConfiguration.themeMode,
-            locale: appConfiguration.language,
+            // 鏍稿績椤甸潰鍙湁涓枃锛岃窡鐫€绯荤粺璧颁細涓嫳娣锋潅
+            locale: const Locale('zh'),
             localizationsDelegates: AppLocalizations.localizationsDelegates,
             supportedLocales: AppLocalizations.supportedLocales,
             home: home,
           );
         });
-  }
-
-  ThemeData theme(Brightness brightness) {
-    bool useMaterial3 = appConfiguration.useMaterial3;
-    bool isDark = brightness == Brightness.dark;
-
-    Color? themeColor = isDark ? appConfiguration.themeColor : appConfiguration.themeColor;
-    Color? cardColor = isDark ? Color(0XFF3C3C3C) : Colors.white;
-    Color? surfaceContainer = isDark ? Colors.grey[800] : Colors.white;
-
-    Color? secondary = useMaterial3 ? null : themeColor;
-    if (themeColor is MaterialColor) {
-      secondary = themeColor[500];
-    }
-
-    var colorScheme = ColorScheme.fromSeed(
-      brightness: brightness,
-      seedColor: themeColor,
-      primary: themeColor,
-      surface: cardColor,
-      secondary: secondary,
-      onPrimary: isDark ? Colors.white : null,
-      surfaceContainer: surfaceContainer,
-      surfaceContainerHigh: surfaceContainer,
-    );
-
-    // 浅色结构色严格按设计稿 token：--bg #F5F6F8 / --panel #FFF / --border #E4E6EB / --text-1/2/3
-    if (!isDark) {
-      colorScheme = colorScheme.copyWith(
-        surface: Colors.white,
-        onSurface: const Color(0xFF1F2329),
-        // onSurfaceVariant: const Color(0xFF646A73),
-        outlineVariant: const Color(0xFFE4E6EB),
-        surfaceContainerLow: const Color(0xFFF5F6F8),
-      );
-    } else {
-      // 暗黑结构色按设计稿 homepage-dark.html：--bg #1B1D22 / --panel #24262C / --border #36393F / --text-1/2/3
-      colorScheme = colorScheme.copyWith(
-        // 默认蓝（设计稿 #4A6CF7）在深底上偏暗，切换为暗黑设计稿 --primary #5D7CFA；用户自选主题色不干预
-        primary: appConfiguration.themeColor == const Color(0xFF4A6CF7) ? DarkPalette.primary : null,
-        surface: DarkPalette.panel,
-        onSurface: DarkPalette.text1,
-        onSurfaceVariant: DarkPalette.text2,
-        outlineVariant: DarkPalette.border,
-        surfaceContainer: DarkPalette.panel,
-        surfaceContainerHigh: DarkPalette.panel,
-        surfaceContainerLow: DarkPalette.bg,
-      );
-    }
-
-    var themeData =
-        ThemeData(brightness: brightness, useMaterial3: appConfiguration.useMaterial3, colorScheme: colorScheme);
-    if (!isDark) {
-      themeData = themeData.copyWith(
-          // 手机端用户拍板全纯白；桌面端保留设计稿 #F5F6F8 窗口灰底
-          scaffoldBackgroundColor: Platforms.isMobile() ? Colors.white : const Color(0xFFF5F6F8),
-          dividerColor: const Color(0xFFE4E6EB));
-    } else {
-      themeData = themeData.copyWith(scaffoldBackgroundColor: DarkPalette.bg, dividerColor: DarkPalette.border);
-    }
-
-    if (!appConfiguration.useMaterial3) {
-      themeData = themeData.copyWith(
-        appBarTheme: themeData.appBarTheme.copyWith(
-          iconTheme: themeData.iconTheme.copyWith(size: 20),
-          backgroundColor: themeData.canvasColor,
-          elevation: 0,
-          titleTextStyle: themeData.textTheme.titleMedium,
-        ),
-        tabBarTheme: themeData.tabBarTheme.copyWith(
-          labelColor: themeData.colorScheme.primary,
-          indicatorColor: themeColor,
-          unselectedLabelColor: themeData.textTheme.titleMedium?.color,
-        ),
-      );
-    }
-
-    if (Platform.isWindows) {
-      themeData = themeData.useSystemChineseFont();
-    }
-
-    return themeData.copyWith(
-        dialogTheme:
-            themeData.dialogTheme.copyWith(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))));
   }
 }

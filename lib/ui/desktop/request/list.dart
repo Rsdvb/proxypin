@@ -123,6 +123,7 @@ class DesktopRequestListState extends State<DesktopRequestListWidget> with Autom
                   backgroundColor: Theme.of(context).colorScheme.surface,
                   appBar: AppBar(
                     toolbarHeight: 40,
+                    backgroundColor: Theme.of(context).colorScheme.surface,
                     title: SizedBox(height: 40, child: TabBar(tabs: tabs, dividerColor: Colors.transparent)),
                     automaticallyImplyLeading: false,
                     actions: [popupMenus()],
