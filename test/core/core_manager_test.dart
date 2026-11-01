@@ -75,6 +75,9 @@ class _Mitm implements MitmHost {
   List<String>? domains = ['example.com'];
 
   @override
+  List<String> editableDomains = ['example.com'];
+
+  @override
   Future<void> attach(int upstreamPort) async => calls.add('attach:$upstreamPort');
 
   @override
@@ -395,6 +398,93 @@ void main() {
       expect(platform.calls, contains('reload'));
       expect(platform.calls.last, isNot('reload'), reason: 'the stored mode must be set again afterwards');
     });
+  });
+
+  group('merged profiles', () {
+    test('take their nodes from the sources, and follow them', () async {
+      final first = await manager.addProfile('trojan://p@a.example:443#A');
+      final second = await manager.addProfile('trojan://p@b.example:443#B', name: 'second');
+      final merged = await manager.mergeProfiles('all', [first.id, second.id]);
+      await manager.setActiveProfile(merged.id);
+
+      expect(manager.nodes.map((e) => e['tag']), ['A', 'B']);
+
+      second.nodes = [
+        {'tag': 'C', 'type': 'trojan'}
+      ];
+      expect(manager.nodes.map((e) => e['tag']), ['A', 'C']);
+    });
+
+    test('keep tags unique, which sing-box requires', () async {
+      final first = await manager.addProfile('trojan://p@a.example:443#HK', name: 'one');
+      final second = await manager.addProfile('trojan://p@b.example:443#HK', name: 'two');
+      final merged = await manager.mergeProfiles('all', [first.id, second.id]);
+      await manager.setActiveProfile(merged.id);
+
+      expect(manager.nodes.map((e) => e['tag']), ['HK', 'two HK']);
+      expect(first.nodes.single['tag'], 'HK', reason: 'the source stays as it was');
+    });
+
+    test('lose a removed source without breaking', () async {
+      final first = await manager.addProfile('trojan://p@a.example:443#A');
+      final second = await manager.addProfile('trojan://p@b.example:443#B');
+      final merged = await manager.mergeProfiles('all', [first.id, second.id]);
+      await manager.setActiveProfile(merged.id);
+      await manager.removeProfile(second.id);
+
+      expect(manager.nodes.map((e) => e['tag']), ['A']);
+    });
+  });
+
+  group('backup', () {
+    test('restores profiles and the list, and keeps this device\'s secret', () async {
+      await manager.addProfile(twoNodes, name: 'saved');
+      await manager.selectNode('B');
+      final secret = manager.settings.clashSecret;
+      final backup = manager.exportBackup();
+
+      await manager.removeProfile(manager.profiles.single.id);
+      mitm.editableDomains = [];
+      await manager.restoreBackup(backup);
+
+      expect(manager.activeProfile!.name, 'saved');
+      expect(manager.selectedNode, 'B');
+      expect(mitm.editableDomains, ['example.com']);
+      expect(manager.settings.clashSecret, secret);
+    });
+
+    test('a bad file changes nothing', () async {
+      await manager.addProfile(twoNodes);
+      await expectLater(manager.restoreBackup(Uint8List.fromList([1, 2, 3])), throwsFormatException);
+      expect(manager.profiles, hasLength(1));
+    });
+
+    test('never contains the WebDAV password', () async {
+      await manager.saveWebDav(url: 'https://dav.example', username: 'me', password: 'hunter2');
+      final backup = manager.exportBackup();
+      await manager.saveWebDav(url: '', username: '', password: '');
+      await manager.restoreBackup(backup);
+
+      expect(manager.settings.webDavPassword, isEmpty);
+    });
+  });
+
+  test('favourites are kept by name and survive a restart', () async {
+    await manager.toggleFavorite('香港 01');
+    await manager.toggleFavorite('日本 01');
+    await manager.toggleFavorite('日本 01');
+
+    final next = build();
+    await next.load();
+    expect(next.settings.favorites, {'香港 01'});
+  });
+
+  test('blank advanced fields keep what was there', () async {
+    await manager.saveAdvanced(remoteDns: '', directDns: '223.5.5.5', testUrl: '', fakeIp: false, ipv6: false);
+
+    expect(manager.settings.remoteDns, 'https://1.1.1.1/dns-query');
+    expect(manager.settings.directDns, '223.5.5.5');
+    expect(manager.settings.fakeIp, isFalse);
   });
 
   test('settings use a secret of their own on each install', () {

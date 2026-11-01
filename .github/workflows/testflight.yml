@@ -1,0 +1,95 @@
+name: TestFlight
+
+# Signs with an App Store Connect API key and uploads to TestFlight. Xcode creates
+# the certificates and profiles itself, so nothing here needs a Mac at hand.
+#
+# Repository secrets:
+#   APPLE_TEAM_ID         Team ID from the Membership page
+#   ASC_KEY_ID            API key ID
+#   ASC_ISSUER_ID         Issuer ID
+#   ASC_KEY_P8            Contents of the .p8 file
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FLUTTER_VERSION: 3.47.9
+  SING_BOX_VERSION: 1.14.4
+
+jobs:
+  upload:
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: bash tool/fetch_rule_sets.sh assets/rules
+      - name: Restore Libbox
+        id: libbox
+        uses: actions/cache/restore@v4
+        with:
+          path: ios/Libbox/Libbox.xcframework
+          key: libbox-${{ env.SING_BOX_VERSION }}-${{ hashFiles('tool/build_libbox.sh') }}
+      - uses: actions/setup-go@v5
+        if: steps.libbox.outputs.cache-hit != 'true'
+        with:
+          go-version: '1.25'
+          cache: false
+      - name: Build Libbox
+        if: steps.libbox.outputs.cache-hit != 'true'
+        run: bash tool/build_libbox.sh "$SING_BOX_VERSION" ios/Libbox
+      - name: Save Libbox
+        if: steps.libbox.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ios/Libbox/Libbox.xcframework
+          key: libbox-${{ env.SING_BOX_VERSION }}-${{ hashFiles('tool/build_libbox.sh') }}
+      - name: Write the API key
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/keys"
+          printf '%s' "$ASC_KEY_P8" > "$RUNNER_TEMP/keys/AuthKey_$ASC_KEY_ID.p8"
+      - name: Prepare the Xcode project
+        # Each upload needs a build number App Store Connect has not seen
+        run: flutter build ios --release --config-only --build-number="$GITHUB_RUN_NUMBER"
+      - name: Install pods
+        run: pod install --project-directory=ios
+      - name: Archive
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          xcodebuild archive \
+            -workspace ios/Runner.xcworkspace -scheme Runner -configuration Release \
+            -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/RsProxy.xcarchive" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$RUNNER_TEMP/keys/AuthKey_$ASC_KEY_ID.p8" \
+            -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" CODE_SIGN_STYLE=Automatic
+      - name: Upload
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          /usr/libexec/PlistBuddy -c "Set :teamID $APPLE_TEAM_ID" ios/ExportOptions.plist
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/RsProxy.xcarchive" \
+            -exportOptionsPlist ios/ExportOptions.plist \
+            -exportPath "$RUNNER_TEMP/export" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$RUNNER_TEMP/keys/AuthKey_$ASC_KEY_ID.p8" \
+            -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+      - name: Remove the API key
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/keys"

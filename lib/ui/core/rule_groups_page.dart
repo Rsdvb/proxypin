@@ -17,6 +17,9 @@ class _RuleGroupsPageState extends State<RuleGroupsPage> {
   late List<RuleGroup> _groups = _copy(_manager.settings.groups);
   bool _changed = false;
 
+  /// 底部菜单里“编辑规则”的返回值，和去向放在同一个返回值里，所以用节点名里不会出现的字符
+  static const String _editAction = '\u0000edit';
+
   static List<RuleGroup> _copy(List<RuleGroup> groups) => groups.map((e) => RuleGroup.fromJson(e.toJson())).toList();
 
   void _change(VoidCallback change) {
@@ -48,6 +51,20 @@ class _RuleGroupsPageState extends State<RuleGroupsPage> {
         child: ConstrainedBox(
           constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.7),
           child: ListView(shrinkWrap: true, children: [
+            ListTile(
+              leading: const Icon(Icons.edit_outlined),
+              title: const Text('编辑规则'),
+              onTap: () => Navigator.pop(context, _editAction),
+            ),
+            SwitchListTile(
+              title: const Text('启用'),
+              value: group.enabled,
+              onChanged: (value) {
+                _change(() => group.enabled = value);
+                Navigator.pop(context);
+              },
+            ),
+            const Divider(height: 1),
             for (final choice in [RuleTarget.selected, RuleTarget.direct, RuleTarget.block, ...nodes])
               ListTile(
                 title: Text(_targetLabel(choice), maxLines: 1, overflow: TextOverflow.ellipsis),
@@ -58,7 +75,11 @@ class _RuleGroupsPageState extends State<RuleGroupsPage> {
         ),
       ),
     );
-    if (target != null) _change(() => group.target = target);
+    if (target == _editAction) {
+      await _edit(group);
+    } else if (target != null) {
+      _change(() => group.target = target);
+    }
   }
 
   Future<void> _edit(RuleGroup? group) async {
@@ -106,13 +127,21 @@ class _RuleGroupsPageState extends State<RuleGroupsPage> {
             }),
             itemBuilder: (context, index) {
               final group = _groups[index];
+              final theme = Theme.of(context);
               return ListTile(
                 key: ValueKey(group.id),
-                leading: Switch(value: group.enabled, onChanged: (value) => _change(() => group.enabled = value)),
-                title: Text(group.name),
-                subtitle: Text(_targetLabel(group.target), maxLines: 1, overflow: TextOverflow.ellipsis),
-                trailing: IconButton(
-                    tooltip: '编辑', icon: const Icon(Icons.edit_outlined, size: 20), onPressed: () => _edit(group)),
+                title: Text(group.name,
+                    style: group.enabled ? null : TextStyle(color: theme.colorScheme.onSurfaceVariant)),
+                trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 150),
+                    child: Text(group.enabled ? _targetLabel(group.target) : '已关闭',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+                  ),
+                  const Icon(Icons.chevron_right),
+                ]),
                 onTap: () => _pickTarget(group),
               );
             },

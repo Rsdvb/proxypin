@@ -78,6 +78,9 @@ class Profile {
   /// 上次解析时跳过的不支持节点数
   int skipped;
 
+  /// 合并配置的来源，节点实时取自这些配置，来源更新后跟着变。普通配置为空
+  List<String> sources;
+
   Profile({
     required this.id,
     required this.name,
@@ -91,9 +94,12 @@ class Profile {
     this.updatedAt,
     this.nodes = const [],
     this.skipped = 0,
+    this.sources = const [],
   });
 
   bool get isSubscription => url != null;
+
+  bool get isMerged => sources.isNotEmpty;
 
   /// 过滤后的节点，配置里只放这些
   List<Outbound> get activeNodes {
@@ -132,6 +138,7 @@ class Profile {
         updatedAt: json['updatedAt'] == null ? null : DateTime.fromMillisecondsSinceEpoch(json['updatedAt']),
         nodes: (json['nodes'] as List?)?.map((e) => Map<String, dynamic>.from(e)).toList() ?? [],
         skipped: json['skipped'] ?? 0,
+        sources: (json['sources'] as List?)?.map((e) => e.toString()).toList() ?? const [],
       );
 
   Map<String, dynamic> toJson() => {
@@ -147,5 +154,6 @@ class Profile {
         'updatedAt': updatedAt?.millisecondsSinceEpoch,
         'nodes': nodes,
         'skipped': skipped,
+        'sources': sources,
       };
 }

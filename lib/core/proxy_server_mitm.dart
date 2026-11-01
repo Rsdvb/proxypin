@@ -31,6 +31,16 @@ class ProxyServerMitm implements MitmHost {
   }
 
   @override
+  List<String> get editableDomains => HostFilter.whitelist.list.map((e) => e.pattern).toList();
+
+  @override
+  set editableDomains(List<String> value) {
+    HostFilter.whitelist.list
+      ..clear()
+      ..addAll(value.map(RegExp.new));
+  }
+
+  @override
   Future<void> attach(int upstreamPort) async {
     server.configuration
       ..externalProxy = ProxyInfo.of('127.0.0.1', upstreamPort)

@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:proxypin/network/util/logger.dart';
 
 import 'clash_api.dart';
+import 'core_backup.dart';
 import 'core_config.dart';
 import 'core_platform.dart';
 import 'core_settings.dart';
@@ -21,6 +22,11 @@ abstract class MitmHost {
 
   /// 当前要解密的域名后缀，null 表示全部交给解密端判断
   List<String>? get domains;
+
+  /// 用户编辑的名单原文，备份恢复时用
+  List<String> get editableDomains;
+
+  set editableDomains(List<String> value);
 
   /// 解密后的流量从 [upstreamPort] 回到 sing-box
   Future<void> attach(int upstreamPort);
@@ -89,7 +95,28 @@ class CoreManager extends ChangeNotifier {
     return null;
   }
 
-  List<Map<String, dynamic>> get nodes => activeProfile?.activeNodes ?? const [];
+  List<Map<String, dynamic>> get nodes {
+    final profile = activeProfile;
+    if (profile == null) return const [];
+    return profile.isMerged ? _mergedNodes(profile) : profile.activeNodes;
+  }
+
+  /// 合并配置的节点。不同来源可能有同名节点，sing-box 要求 tag 唯一，重名的加上来源名
+  List<Map<String, dynamic>> _mergedNodes(Profile merged) {
+    final used = <String>{};
+    final result = <Map<String, dynamic>>[];
+    for (final id in merged.sources) {
+      for (final source in profiles.where((e) => e.id == id)) {
+        for (final node in source.activeNodes) {
+          final tag = node['tag'].toString();
+          final unique = used.add(tag) ? tag : '${source.name} $tag';
+          used.add(unique);
+          result.add({...node, 'tag': unique});
+        }
+      }
+    }
+    return result;
+  }
 
   /// 当前选中的节点 tag，空表示自动选择
   String? get selectedNode {
@@ -97,8 +124,8 @@ class CoreManager extends ChangeNotifier {
     return profile == null ? null : settings.selectedNodes[profile.id];
   }
 
-  /// 本地代理地址，下载订阅时用
-  String? get proxyAddress => isRunning && settings.mixedPort > 0 ? '127.0.0.1:${settings.mixedPort}' : null;
+  /// 本地代理地址，下载订阅时用。upstream-in 在两个平台都有，mixed-in 在 iOS 上不开
+  String? get proxyAddress => isRunning ? '127.0.0.1:${settings.upstreamPort}' : null;
 
   Future<void> load() async {
     settings = await store.loadSettings();
@@ -355,6 +382,20 @@ class CoreManager extends ChangeNotifier {
   static bool _isSubscriptionUrl(String text) =>
       !text.contains(RegExp(r'\s')) && (text.startsWith('https://') || text.startsWith('http://'));
 
+  /// 把几份配置合成一份，节点跟着来源走
+  Future<Profile> mergeProfiles(String name, List<String> sources) async {
+    final profile = Profile(
+      id: DateTime.now().microsecondsSinceEpoch.toString(),
+      name: name,
+      updatedAt: DateTime.now(),
+      sources: sources,
+    );
+    profiles = [...profiles, profile];
+    await store.saveProfiles(profiles);
+    notifyListeners();
+    return profile;
+  }
+
   /// 更新订阅。失败时保留原来的节点
   Future<void> updateProfile(Profile profile) async {
     final url = profile.url;
@@ -432,6 +473,12 @@ class CoreManager extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> toggleFavorite(String tag) async {
+    if (!settings.favorites.remove(tag)) settings.favorites.add(tag);
+    await store.saveSettings(settings);
+    notifyListeners();
+  }
+
   /// 测当前配置所有节点的延迟。内核没运行时无法测
   Future<void> testLatency() async {
     if (!isRunning || testing) return;
@@ -452,6 +499,60 @@ class CoreManager extends ChangeNotifier {
 
   Future<void> saveGroups(List<RuleGroup> groups) async {
     settings.groups = groups;
+    await store.saveSettings(settings);
+    await _applyConfig();
+    notifyListeners();
+  }
+
+  Uint8List exportBackup() => CoreBackup.encode(BackupContent(profiles, settings, mitm.editableDomains));
+
+  /// 用备份替换配置、分流和解密名单，这台设备自己的端口和密钥不动
+  Future<void> restoreBackup(Uint8List bytes) async {
+    final backup = CoreBackup.decode(bytes);
+    final restored = backup.settings;
+    profiles = backup.profiles;
+    settings
+      ..activeProfileId = restored.activeProfileId
+      ..selectedNodes = restored.selectedNodes
+      ..favorites = restored.favorites
+      ..groups = restored.groups
+      ..mode = restored.mode
+      ..systemProxy = restored.systemProxy
+      ..fakeIp = restored.fakeIp
+      ..ipv6 = restored.ipv6
+      ..remoteDns = restored.remoteDns
+      ..directDns = restored.directDns
+      ..testUrl = restored.testUrl;
+    mitm.editableDomains = backup.decryptDomains;
+    delays.clear();
+    await store.saveProfiles(profiles);
+    await store.saveSettings(settings);
+    await _applyConfig();
+    notifyListeners();
+  }
+
+  Future<void> saveWebDav({required String url, required String username, required String password}) async {
+    settings
+      ..webDavUrl = url
+      ..webDavUsername = username
+      ..webDavPassword = password;
+    await store.saveSettings(settings);
+  }
+
+  /// 空值保留原设置：这些字段没有填空的合理含义，填错了内核会起不来
+  Future<void> saveAdvanced({
+    required String remoteDns,
+    required String directDns,
+    required String testUrl,
+    required bool fakeIp,
+    required bool ipv6,
+  }) async {
+    if (remoteDns.isNotEmpty) settings.remoteDns = remoteDns;
+    if (directDns.isNotEmpty) settings.directDns = directDns;
+    if (testUrl.isNotEmpty) settings.testUrl = testUrl;
+    settings
+      ..fakeIp = fakeIp
+      ..ipv6 = ipv6;
     await store.saveSettings(settings);
     await _applyConfig();
     notifyListeners();

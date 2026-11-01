@@ -1,7 +1,13 @@
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:proxypin/core/core_manager.dart';
 import 'package:proxypin/core/profile.dart';
+import 'package:proxypin/ui/component/qrcode/qr_scan_view.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 
 import 'connect_page.dart';
 import 'format.dart';
@@ -17,6 +23,13 @@ class ProfilesPage extends StatelessWidget {
       listenable: manager,
       builder: (context, _) => Scaffold(
         appBar: AppBar(title: const Text('配置'), actions: [
+          if (manager.profiles.length > 1)
+            IconButton(
+              tooltip: '合并配置',
+              icon: const Icon(Icons.merge),
+              onPressed: () =>
+                  Navigator.of(context).push(MaterialPageRoute(builder: (_) => const MergeProfilesPage())),
+            ),
           IconButton(
             tooltip: '添加配置',
             icon: const Icon(Icons.add),
@@ -68,6 +81,23 @@ class _ProfileCardState extends State<_ProfileCard> {
     }
   }
 
+  void _showQrCode() {
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(widget.profile.name),
+        content: SizedBox(width: 260, height: 260, child: QrImageView(data: widget.profile.url!, backgroundColor: Colors.white)),
+        actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('关闭'))],
+      ),
+    );
+  }
+
+  Future<void> _copyLink() async {
+    final messenger = ScaffoldMessenger.of(context);
+    await Clipboard.setData(ClipboardData(text: widget.profile.url!));
+    messenger.showSnackBar(const SnackBar(content: Text('已复制')));
+  }
+
   Future<void> _confirmRemove() async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -102,7 +132,7 @@ class _ProfileCardState extends State<_ProfileCard> {
                 ProfileSummary(profile),
                 const SizedBox(height: 4),
                 Text(
-                  '${profile.nodes.length} 个节点'
+                  '${profile.isMerged ? '合并 ${profile.sources.length} 份配置' : '${profile.nodes.length} 个节点'}'
                   '${profile.skipped > 0 ? ' · ${profile.skipped} 个暂不支持' : ''}'
                   '${profile.updatedAt == null ? '' : ' · ${formatDate(profile.updatedAt!)} 更新'}',
                   style: theme.textTheme.bodySmall,
@@ -118,12 +148,18 @@ class _ProfileCardState extends State<_ProfileCard> {
               PopupMenuButton<String>(
                 onSelected: (value) => switch (value) {
                   'update' => _update(),
+                  'qr' => _showQrCode(),
+                  'copy' => _copyLink(),
                   'edit' => Navigator.of(context)
                       .push(MaterialPageRoute(builder: (_) => EditProfilePage(profile: profile))),
                   _ => _confirmRemove(),
                 },
                 itemBuilder: (context) => [
-                  if (profile.isSubscription) const PopupMenuItem(value: 'update', child: Text('更新')),
+                  if (profile.isSubscription) ...const [
+                    PopupMenuItem(value: 'update', child: Text('更新')),
+                    PopupMenuItem(value: 'qr', child: Text('二维码')),
+                    PopupMenuItem(value: 'copy', child: Text('复制链接')),
+                  ],
                   const PopupMenuItem(value: 'edit', child: Text('编辑')),
                   const PopupMenuItem(value: 'remove', child: Text('删除')),
                 ],
@@ -162,6 +198,18 @@ class _AddProfilePageState extends State<AddProfilePage> {
     if (text != null) setState(() => _content.text = text);
   }
 
+  Future<void> _scan() async {
+    final result = await QrCodeScanner.scan(context);
+    if (result != null && result != '-1' && mounted) setState(() => _content.text = result);
+  }
+
+  Future<void> _importFile() async {
+    final file = await FilePicker.pickFile(type: FileType.any);
+    if (file == null) return;
+    final text = utf8.decode(await file.readAsBytes(), allowMalformed: true);
+    if (mounted) setState(() => _content.text = text);
+  }
+
   Future<void> _add() async {
     setState(() {
       _adding = true;
@@ -194,10 +242,12 @@ class _AddProfilePageState extends State<AddProfilePage> {
           decoration: const InputDecoration(hintText: '粘贴订阅链接或配置内容', border: OutlineInputBorder()),
         ),
         const SizedBox(height: 8),
-        Align(
-          alignment: Alignment.centerLeft,
-          child: TextButton.icon(onPressed: _paste, icon: const Icon(Icons.paste, size: 18), label: const Text('从剪贴板粘贴')),
-        ),
+        Wrap(spacing: 4, children: [
+          TextButton.icon(onPressed: _paste, icon: const Icon(Icons.paste, size: 18), label: const Text('粘贴')),
+          if (Platform.isIOS)
+            TextButton.icon(onPressed: _scan, icon: const Icon(Icons.qr_code_scanner, size: 18), label: const Text('扫码')),
+          TextButton.icon(onPressed: _importFile, icon: const Icon(Icons.folder_open, size: 18), label: const Text('文件')),
+        ]),
         const SizedBox(height: 8),
         TextField(
           controller: _name,
@@ -215,6 +265,58 @@ class _AddProfilePageState extends State<AddProfilePage> {
               ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
               : const Text('添加'),
         ),
+      ]),
+    );
+  }
+}
+
+/// 把几份配置合成一份，一个分流方案同时用多家机场的节点
+class MergeProfilesPage extends StatefulWidget {
+  const MergeProfilesPage({super.key});
+
+  @override
+  State<MergeProfilesPage> createState() => _MergeProfilesPageState();
+}
+
+class _MergeProfilesPageState extends State<MergeProfilesPage> {
+  final TextEditingController _name = TextEditingController(text: '合并配置');
+  final Set<String> _selected = {};
+
+  @override
+  void dispose() {
+    _name.dispose();
+    super.dispose();
+  }
+
+  Future<void> _merge() async {
+    final manager = CoreManager.instance;
+    final sources = manager.profiles.map((e) => e.id).where(_selected.contains).toList();
+    await manager.mergeProfiles(_name.text.trim().isEmpty ? '合并配置' : _name.text.trim(), sources);
+    if (mounted) Navigator.of(context).pop();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final profiles = CoreManager.instance.profiles.where((e) => !e.isMerged).toList();
+    return Scaffold(
+      appBar: AppBar(title: const Text('合并配置'), actions: [
+        IconButton(tooltip: '保存', icon: const Icon(Icons.check), onPressed: _selected.length < 2 ? null : _merge),
+      ]),
+      body: ListView(children: [
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: TextField(
+            controller: _name,
+            decoration: const InputDecoration(labelText: '名称', border: OutlineInputBorder()),
+          ),
+        ),
+        for (final profile in profiles)
+          CheckboxListTile(
+            title: Text(profile.name),
+            subtitle: Text('${profile.nodes.length} 个节点'),
+            value: _selected.contains(profile.id),
+            onChanged: (value) => setState(() => value == true ? _selected.add(profile.id) : _selected.remove(profile.id)),
+          ),
       ]),
     );
   }

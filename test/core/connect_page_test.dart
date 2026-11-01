@@ -55,6 +55,9 @@ class _Mitm implements MitmHost {
   List<String>? get domains => const [];
 
   @override
+  List<String> editableDomains = [];
+
+  @override
   Future<void> attach(int upstreamPort) async {}
 
   @override
@@ -142,8 +145,11 @@ void main() {
     await tester.tap(find.text('open'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byType(Switch));
-    await tester.pump();
+    await tester.tap(find.text('分组 A'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('启用'));
+    await tester.pumpAndSettle();
+    expect(find.text('已关闭'), findsOneWidget);
     expect(manager.settings.groups.single.enabled, isTrue, reason: 'nothing is applied while editing');
 
     tester.state<NavigatorState>(find.byType(Navigator)).pop();

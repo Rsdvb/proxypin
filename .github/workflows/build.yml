@@ -59,7 +59,7 @@ jobs:
       - run: bash tool/fetch_rule_sets.sh assets/rules
       - name: Restore Libbox
         id: libbox
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: ios/Libbox/Libbox.xcframework
           key: libbox-${{ env.SING_BOX_VERSION }}-${{ hashFiles('tool/build_libbox.sh') }}
@@ -71,6 +71,12 @@ jobs:
       - name: Build Libbox
         if: steps.libbox.outputs.cache-hit != 'true'
         run: bash tool/build_libbox.sh "$SING_BOX_VERSION" ios/Libbox
+      - name: Save Libbox
+        if: steps.libbox.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ios/Libbox/Libbox.xcframework
+          key: libbox-${{ env.SING_BOX_VERSION }}-${{ hashFiles('tool/build_libbox.sh') }}
       - name: Build without signing
         run: flutter build ios --release --no-codesign
       - name: Package unsigned IPA

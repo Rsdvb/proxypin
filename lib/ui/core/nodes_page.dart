@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:proxypin/core/core_manager.dart';
+import 'package:proxypin/core/core_tools.dart';
 
 import 'connect_page.dart';
 
@@ -12,8 +13,13 @@ class NodesPage extends StatefulWidget {
 }
 
 class _NodesPageState extends State<NodesPage> {
+  static const String _favoriteFilter = '收藏';
+
   String _keyword = '';
   bool _sortByDelay = false;
+
+  /// 地区或收藏，null 表示全部
+  String? _filter;
 
   @override
   Widget build(BuildContext context) {
@@ -48,6 +54,7 @@ class _NodesPageState extends State<NodesPage> {
                 onChanged: (value) => setState(() => _keyword = value.trim().toLowerCase()),
               ),
             ),
+            _filters(manager),
             Expanded(
               child: ListView.builder(
                 itemCount: tags.length,
@@ -59,8 +66,15 @@ class _NodesPageState extends State<NodesPage> {
                     leading: Icon(tag == selected ? Icons.radio_button_checked : Icons.radio_button_off, size: 20),
                     title: Text(nodeLabel(tag), maxLines: 1, overflow: TextOverflow.ellipsis),
                     subtitle: _typeOf(manager, tag) == null ? null : Text(_typeOf(manager, tag)!),
-                    trailing:
-                        delay == null ? null : Text('$delay ms', style: TextStyle(color: delayColor(context, delay))),
+                    trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                      if (delay != null) Text('$delay ms', style: TextStyle(color: delayColor(context, delay))),
+                      if (tag != 'auto' && tag != 'direct')
+                        IconButton(
+                          tooltip: '收藏',
+                          icon: Icon(manager.settings.favorites.contains(tag) ? Icons.star : Icons.star_border, size: 20),
+                          onPressed: () => manager.toggleFavorite(tag),
+                        ),
+                    ]),
                     onTap: () => manager.selectNode(tag),
                   );
                 },
@@ -72,15 +86,48 @@ class _NodesPageState extends State<NodesPage> {
     );
   }
 
+  /// 地区只列节点里有的，收藏为空时不显示，没有可筛选的就整行不占位
+  Widget _filters(CoreManager manager) {
+    final tags = manager.nodes.map((e) => e['tag'].toString());
+    final choices = [
+      if (tags.any(manager.settings.favorites.contains)) _favoriteFilter,
+      ...NodeRegions.present(tags),
+    ];
+    if (choices.isEmpty) return const SizedBox.shrink();
+    return SizedBox(
+      height: 44,
+      child: ListView(scrollDirection: Axis.horizontal, padding: const EdgeInsets.symmetric(horizontal: 16), children: [
+        for (final choice in choices)
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: FilterChip(
+              label: Text(choice),
+              selected: _filter == choice,
+              onSelected: (selected) => setState(() => _filter = selected ? choice : null),
+            ),
+          ),
+      ]),
+    );
+  }
+
+  bool _matchesFilter(CoreManager manager, String tag) {
+    final filter = _filter;
+    if (filter == null) return true;
+    if (filter == _favoriteFilter) return manager.settings.favorites.contains(tag);
+    return NodeRegions.of(tag) == filter;
+  }
+
   List<String> _visibleTags(CoreManager manager) {
     final nodes = manager.nodes.map((e) => e['tag'].toString()).toList();
-    final matching = nodes.where((tag) => _keyword.isEmpty || tag.toLowerCase().contains(_keyword)).toList();
+    final matching = nodes
+        .where((tag) => (_keyword.isEmpty || tag.toLowerCase().contains(_keyword)) && _matchesFilter(manager, tag))
+        .toList();
     if (_sortByDelay) {
       // 没测出延迟的排最后
       int delayOf(String tag) => manager.delays[tag] ?? 1 << 30;
       matching.sort((a, b) => delayOf(a).compareTo(delayOf(b)));
     }
-    return [if (_keyword.isEmpty) ...[if (nodes.length > 1) 'auto', 'direct'], ...matching];
+    return [if (_keyword.isEmpty && _filter == null) ...[if (nodes.length > 1) 'auto', 'direct'], ...matching];
   }
 
   String? _typeOf(CoreManager manager, String tag) {

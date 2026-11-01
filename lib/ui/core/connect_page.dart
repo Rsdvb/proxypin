@@ -13,6 +13,7 @@ import 'package:proxypin/network/components/host_filter.dart';
 
 import 'decrypt_domains_page.dart';
 import 'format.dart';
+import 'more_page.dart';
 import 'nodes_page.dart';
 import 'profiles_page.dart';
 import 'rule_groups_page.dart';
@@ -102,6 +103,12 @@ class _ConnectView extends StatelessWidget {
                 value: manager.settings.systemProxy,
                 onChanged: manager.setSystemProxy,
               ),
+            ListTile(
+              title: const Text('更多'),
+              subtitle: const Text('连接、测速、备份、高级设置'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => _open(context, MorePage(configuration: proxyServer.configuration)),
+            ),
           ]),
           if (manager.isRunning) ...[
             const SizedBox(height: 16),

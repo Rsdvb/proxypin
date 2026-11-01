@@ -12,6 +12,12 @@ class CoreSettings {
 
   /// 配置 id -> 上次选中的节点
   Map<String, String> selectedNodes;
+
+  /// 收藏的节点名。按名称存，订阅更新后仍然有效
+  Set<String> favorites;
+  String webDavUrl;
+  String webDavUsername;
+  String webDavPassword;
   RouteMode mode;
   bool capture;
 
@@ -34,6 +40,10 @@ class CoreSettings {
   CoreSettings({
     this.activeProfileId,
     Map<String, String>? selectedNodes,
+    Set<String>? favorites,
+    this.webDavUrl = '',
+    this.webDavUsername = '',
+    this.webDavPassword = '',
     this.mode = RouteMode.rule,
     this.capture = false,
     this.tun = false,
@@ -49,6 +59,7 @@ class CoreSettings {
     this.clashPort = 17892,
     String? clashSecret,
   })  : selectedNodes = selectedNodes ?? {},
+        favorites = favorites ?? {},
         groups = groups ?? RuleGroup.defaults(),
         clashSecret = clashSecret ?? _randomSecret();
 
@@ -61,6 +72,10 @@ class CoreSettings {
   factory CoreSettings.fromJson(Map<String, dynamic> json) => CoreSettings(
         activeProfileId: json['activeProfileId'],
         selectedNodes: (json['selectedNodes'] as Map?)?.cast<String, String>(),
+        favorites: (json['favorites'] as List?)?.map((e) => e.toString()).toSet(),
+        webDavUrl: json['webDavUrl'] ?? '',
+        webDavUsername: json['webDavUsername'] ?? '',
+        webDavPassword: json['webDavPassword'] ?? '',
         mode: RouteMode.values.asNameMap()[json['mode']] ?? RouteMode.rule,
         capture: json['capture'] ?? false,
         tun: json['tun'] ?? false,
@@ -80,6 +95,10 @@ class CoreSettings {
   Map<String, dynamic> toJson() => {
         'activeProfileId': activeProfileId,
         'selectedNodes': selectedNodes,
+        'favorites': favorites.toList(),
+        'webDavUrl': webDavUrl,
+        'webDavUsername': webDavUsername,
+        'webDavPassword': webDavPassword,
         'mode': mode.name,
         'capture': capture,
         'tun': tun,

@@ -10,5 +10,5 @@ Pod::Spec.new do |s|
   s.platform = :ios, '15.0'
   s.vendored_frameworks = 'Libbox.xcframework'
   s.libraries = 'resolv'
-  s.frameworks = 'Foundation', 'Network', 'NetworkExtension', 'Security', 'SystemConfiguration'
+  s.frameworks = 'Foundation', 'Network', 'NetworkExtension', 'Security', 'SystemConfiguration', 'UIKit'
 end
