@@ -86,7 +86,9 @@ class MobileApp {
   static final multiSelectController = MultiSelectController();
 }
 
-class MobileHomeState extends State<MobileHomePage> implements EventListener, LifecycleListener {
+class MobileHomeState extends State<MobileHomePage>
+    with WidgetsBindingObserver
+    implements EventListener, LifecycleListener {
   /// 选择索引
   final ValueNotifier<int> _selectIndex = ValueNotifier(0);
 
@@ -105,6 +107,12 @@ class MobileHomeState extends State<MobileHomePage> implements EventListener, Li
     MemoryCleanupMonitor.onMonitor(onCleanup: () {
       MobileApp.requestStateKey.currentState?.cleanupEarlyData(32);
     });
+  }
+
+  /// 系统内存紧张时立即释放抓包数据。后台时内存占用高的应用最先被系统终止
+  @override
+  void didHaveMemoryPressure() {
+    MobileApp.requestStateKey.currentState?.cleanupEarlyData(32);
   }
 
   @override
@@ -126,6 +134,7 @@ class MobileHomeState extends State<MobileHomePage> implements EventListener, Li
     super.initState();
 
     AppLifecycleBinding.instance.addListener(this);
+    WidgetsBinding.instance.addObserver(this);
     proxyServer = ProxyServer(widget.configuration);
     proxyServer.addListener(this);
     proxyServer.start();
@@ -177,6 +186,7 @@ class MobileHomeState extends State<MobileHomePage> implements EventListener, Li
   @override
   void dispose() {
     AppLifecycleBinding.instance.removeListener(this);
+    WidgetsBinding.instance.removeObserver(this);
     _remoteHistorySubscription?.cancel();
     super.dispose();
   }

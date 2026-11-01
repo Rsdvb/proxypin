@@ -57,7 +57,7 @@ class MqttCaptureSession {
       context.listener?.onRequest(context.clientChannel ?? channel, request);
     }
     final frame = packet.toMessage();
-    request.messages.add(frame);
+    request.addFrame(frame);
     context.listener?.onMessage(channel, request, frame);
   }
 }

@@ -453,10 +453,8 @@ abstract class Http2Codec<T extends HttpMessage> implements Codec<T, T> {
     if (frameHeader.hasEndStreamFlag) frames.addAll(decoder.flush());
     for (final WebSocketFrame frame in frames) {
       frame.isFromClient = false; // server -> client
-      message.messages.add(frame);
+      message.addFrame(frame);
       channelContext.listener?.onMessage(channelContext.clientChannel!, message, frame);
-      logger.d(
-          '[${channelContext.clientChannel?.id}] h2 sse streamId:${frameHeader.streamIdentifier} frame ${frame.payloadLength} ${frame.payloadDataAsString}');
     }
 
     if (frameHeader.hasEndStreamFlag) {

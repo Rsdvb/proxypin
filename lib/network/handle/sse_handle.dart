@@ -7,7 +7,6 @@ import 'package:proxypin/network/http/http.dart';
 import 'package:proxypin/network/http/parse/chunked_decoder.dart';
 import 'package:proxypin/network/http/sse.dart';
 import 'package:proxypin/network/http/websocket.dart';
-import 'package:proxypin/network/util/logger.dart';
 
 /// SSE (text/event-stream) handler: forwards raw bytes and emits parsed message frames.
 ///
@@ -138,10 +137,8 @@ class SseChannelHandler extends ChannelHandler<Uint8List> {
   void _publish(ChannelContext channelContext, Channel channel, List<WebSocketFrame> frames) {
     for (final WebSocketFrame frame in frames) {
       frame.isFromClient = message is HttpRequest;
-      message.messages.add(frame);
+      message.addFrame(frame);
       channelContext.listener?.onMessage(channel, message, frame);
-      logger.d(
-          "[${channelContext.clientChannel?.id}] sse channelRead ${frame.payloadLength} ${frame.payloadDataAsString}");
     }
   }
 }

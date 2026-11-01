@@ -85,8 +85,9 @@ class AppConfiguration {
   /// 底部导航栏
   bool bottomNavigation = true;
 
-  /// 内存清理
-  int? memoryCleanupThreshold;
+  /// 内存清理阈值(MB)，占用超过时只保留最近的请求；null 表示不限制。
+  /// 抓到的请求和响应体都留在内存里，不设阈值时长时间解密抓包会一直增长。
+  int? memoryCleanupThreshold = Platforms.isMobile() ? 512 : 2048;
 
   ///自动已读
   bool autoReadEnabled = true;
@@ -228,7 +229,9 @@ class AppConfiguration {
       pipIcon.value = config['pipIcon'] ?? false;
       headerViewMode = config['headerViewMode'] ?? "table";
       bottomNavigation = config['bottomNavigation'] ?? true;
-      memoryCleanupThreshold = config['memoryCleanupThreshold'];
+      if (config.containsKey('memoryCleanupThreshold')) {
+        memoryCleanupThreshold = config['memoryCleanupThreshold'];
+      }
       autoReadEnabled = config['autoReadEnabled'] ?? true;
       clearConfirm = config['clearConfirm'] ?? false;
 
@@ -286,7 +289,8 @@ class AppConfiguration {
       "headerViewMode": headerViewMode,
       "autoReadEnabled": autoReadEnabled,
       "clearConfirm": clearConfirm,
-      if (memoryCleanupThreshold != null) 'memoryCleanupThreshold': memoryCleanupThreshold,
+      // null 也要写入，用户选择“不限制”后不能退回默认值
+      'memoryCleanupThreshold': memoryCleanupThreshold,
       if (Platforms.isMobile()) 'pipEnabled': pipEnabled.value,
       if (Platforms.isMobile()) 'pipIcon': pipIcon.value ? true : null,
       if (Platforms.isMobile()) 'bottomNavigation': bottomNavigation,

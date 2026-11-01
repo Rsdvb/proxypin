@@ -180,6 +180,31 @@ abstract class HttpMessage {
 
   List<WebSocketFrame> messages = [];
 
+  /// 单个连接在内存里保留的帧数和字节数上限。
+  /// WebSocket、SSE、MQTT 长连接会一直产生帧，不设上限内存会持续增长。
+  static const int maxRetainedFrames = 5000;
+  static const int maxRetainedFrameBytes = 32 * 1024 * 1024;
+
+  int _retainedFrameBytes = 0;
+
+  /// 记录一帧，超过上限时丢弃最早的帧
+  void addFrame(WebSocketFrame frame) {
+    messages.add(frame);
+    _retainedFrameBytes += frame.payloadData.length;
+    if (messages.length <= maxRetainedFrames && _retainedFrameBytes <= maxRetainedFrameBytes) {
+      return;
+    }
+
+    // 多删一些，避免之后每来一帧都要移动整个列表
+    final targetFrames = maxRetainedFrames * 3 ~/ 4;
+    final targetBytes = maxRetainedFrameBytes * 3 ~/ 4;
+    var drop = 0;
+    while (drop < messages.length - 1 && (messages.length - drop > targetFrames || _retainedFrameBytes > targetBytes)) {
+      _retainedFrameBytes -= messages[drop++].payloadData.length;
+    }
+    messages.removeRange(0, drop);
+  }
+
   /// SSE and websocket frames are not stored in [body].
   String? get messagesText {
     if (messages.isEmpty || (!isWebSocket && contentType != ContentType.sse)) return null;
