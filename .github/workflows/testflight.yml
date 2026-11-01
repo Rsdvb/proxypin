@@ -92,7 +92,7 @@ jobs:
           LANG: en_US.UTF-8
         run: |
           source Flutter/flutter_export_environment.sh
-          fastlane testflight
+          fastlane beta
       - name: Keep the build log
         if: failure()
         uses: actions/upload-artifact@v4

@@ -14,7 +14,7 @@ default_platform(:ios)
 
 platform :ios do
   desc 'Sign with the API key alone and upload to TestFlight'
-  lane :testflight do
+  lane :beta do
     app_id = 'io.github.rsdvb.rsproxy'
     tunnel_id = "#{app_id}.tunnel"
     group = "group.#{app_id}"
