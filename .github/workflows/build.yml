@@ -10,8 +10,41 @@ permissions:
 
 env:
   FLUTTER_VERSION: 3.47.9
+  SING_BOX_VERSION: 1.14.4
 
 jobs:
+  core:
+    # Checks the generated configuration and the decryption chain against a real sing-box
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - name: Install sing-box
+        run: |
+          name="sing-box-$SING_BOX_VERSION-linux-amd64"
+          curl -fsSL --retry 3 -o sing-box.tar.gz "https://github.com/SagerNet/sing-box/releases/download/v$SING_BOX_VERSION/$name.tar.gz"
+          tar -xzf sing-box.tar.gz
+          echo "SING_BOX_BIN=$PWD/$name/sing-box" >> "$GITHUB_ENV"
+      - run: bash tool/fetch_rule_sets.sh assets/rules
+      - name: Run core tests
+        env:
+          CORE_CONFIG_OUT: build/core-config
+        run: flutter test test/core
+      - name: Check generated configuration
+        run: |
+          cd build/core-config
+          cp -r ../../assets/rules rules
+          for config in *.json; do
+            echo "checking $config"
+            "$SING_BOX_BIN" check -c "$config"
+          done
+
   ios:
     runs-on: macos-latest
     timeout-minutes: 60
@@ -23,6 +56,7 @@ jobs:
           channel: stable
           cache: true
       - run: flutter pub get
+      - run: bash tool/fetch_rule_sets.sh assets/rules
       - name: Build without signing
         run: flutter build ios --release --no-codesign
       - name: Package unsigned IPA
@@ -50,6 +84,8 @@ jobs:
           channel: stable
           cache: true
       - run: flutter pub get
+      - run: bash tool/fetch_rule_sets.sh assets/rules
+        shell: bash
       - name: Build
         run: flutter build windows --release
       - uses: actions/upload-artifact@v4
