@@ -49,13 +49,8 @@ class Subscription {
     Map<String, String> headers = const {},
     String decryptPassword = '',
   }) async {
-    final routes = switch (strategy) {
-      DownloadStrategy.preferProxy => [if (proxy != null) proxy, null],
-      DownloadStrategy.preferDirect => [null, if (proxy != null) proxy],
-      DownloadStrategy.onlyProxy => [proxy],
-      DownloadStrategy.onlyDirect => [null],
-    };
-    if (strategy == DownloadStrategy.onlyProxy && proxy == null) {
+    final routes = strategy.routes(proxy);
+    if (routes.isEmpty) {
       throw const SocketException('未连接，无法通过当前节点下载');
     }
 

@@ -21,13 +21,6 @@ class ProfileOptionsForm extends StatefulWidget {
 class _ProfileOptionsFormState extends State<ProfileOptionsForm> {
   Profile get _profile => widget.profile;
 
-  static const Map<DownloadStrategy, String> _strategies = {
-    DownloadStrategy.preferProxy: '优先 当前选择',
-    DownloadStrategy.preferDirect: '优先 直连',
-    DownloadStrategy.onlyProxy: '仅 当前选择',
-    DownloadStrategy.onlyDirect: '仅 直连',
-  };
-
   Future<void> _push(Widget page) async {
     await Navigator.of(context).push(MaterialPageRoute(builder: (_) => page));
     if (mounted) setState(() {});
@@ -98,7 +91,8 @@ class _ProfileOptionsFormState extends State<ProfileOptionsForm> {
             value: profile.downloadStrategy,
             underline: const SizedBox.shrink(),
             items: [
-              for (final entry in _strategies.entries) DropdownMenuItem(value: entry.key, child: Text(entry.value)),
+              for (final entry in downloadStrategyLabels.entries)
+                DropdownMenuItem(value: entry.key, child: Text(entry.value)),
             ],
             onChanged: (value) {
               if (value != null) setState(() => profile.downloadStrategy = value);
@@ -124,6 +118,13 @@ class _ProfileOptionsFormState extends State<ProfileOptionsForm> {
 }
 
 /// 720 -> 12 h，90 -> 1 h 30 m
+const Map<DownloadStrategy, String> downloadStrategyLabels = {
+  DownloadStrategy.preferProxy: '优先 当前选择',
+  DownloadStrategy.preferDirect: '优先 直连',
+  DownloadStrategy.onlyProxy: '仅 当前选择',
+  DownloadStrategy.onlyDirect: '仅 直连',
+};
+
 String formatInterval(int? minutes) {
   if (minutes == null) return '关闭';
   final hours = minutes ~/ 60, rest = minutes % 60;

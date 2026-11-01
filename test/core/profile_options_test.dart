@@ -419,6 +419,7 @@ rules:
         store: CoreStore(root),
         mitm: _Mitm(),
         loadRuleSet: (_) async => null,
+        fetchRuleSet: (_, __) async => throw const SocketException('offline'),
         apiFactory: (_, __) => api,
       );
       await manager.load();

@@ -140,6 +140,7 @@ void main() {
         mitm: mitm,
         alwaysTun: alwaysTun,
         loadRuleSet: (name) async => bundled.contains(name) ? Uint8List.fromList([1, 2, 3]) : null,
+        fetchRuleSet: (_, __) async => throw const SocketException('offline'),
         apiFactory: (port, secret) => api,
       );
 

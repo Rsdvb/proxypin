@@ -6,7 +6,20 @@ import 'clash_routing.dart';
 import 'share_link.dart';
 
 /// 下载订阅走哪条路
-enum DownloadStrategy { preferProxy, preferDirect, onlyProxy, onlyDirect }
+enum DownloadStrategy {
+  preferProxy,
+  preferDirect,
+  onlyProxy,
+  onlyDirect;
+
+  /// 依次尝试的路线，null 表示直连。[proxy] 是本地代理地址，没连接时为空
+  List<String?> routes(String? proxy) => switch (this) {
+        preferProxy => [if (proxy != null) proxy, null],
+        preferDirect => [null, if (proxy != null) proxy],
+        onlyProxy => [if (proxy != null) proxy],
+        onlyDirect => [null],
+      };
+}
 
 /// 节点过滤方式
 enum NodeFilterMethod { all, include, exclude }

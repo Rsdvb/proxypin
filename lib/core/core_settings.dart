@@ -322,6 +322,19 @@ class CoreSettings {
   bool hideDisabledGroups;
   String testUrl;
   List<RuleGroup> groups;
+
+  /// 分流都没命中时的去向
+  String finalTarget;
+
+  /// 规则集多久更新一次，单位小时
+  int ruleSetUpdateHours;
+
+  /// 随安装包带的规则集也从网上更新
+  bool updateBundledRuleSets;
+  DownloadStrategy ruleSetDownload;
+
+  /// 上次更新规则集的时间，这台设备自己的
+  DateTime? ruleSetsUpdatedAt;
   int mixedPort;
   int upstreamPort;
   int clashPort;
@@ -351,6 +364,11 @@ class CoreSettings {
     this.hideDisabledGroups = false,
     this.testUrl = 'https://www.gstatic.com/generate_204',
     List<RuleGroup>? groups,
+    this.finalTarget = RuleTarget.selected,
+    this.ruleSetUpdateHours = 24,
+    this.updateBundledRuleSets = false,
+    this.ruleSetDownload = DownloadStrategy.preferProxy,
+    this.ruleSetsUpdatedAt,
     this.mixedPort = 17890,
     this.upstreamPort = 17891,
     this.clashPort = 17892,
@@ -399,6 +417,11 @@ class CoreSettings {
         hideDisabledGroups: json['hideDisabledGroups'] ?? false,
         testUrl: json['testUrl'] ?? 'https://www.gstatic.com/generate_204',
         groups: (json['groups'] as List?)?.map((e) => RuleGroup.fromJson(e)).toList(),
+        finalTarget: json['finalTarget'] ?? RuleTarget.selected,
+        ruleSetUpdateHours: json['ruleSetUpdateHours'] ?? 24,
+        updateBundledRuleSets: json['updateBundledRuleSets'] ?? false,
+        ruleSetDownload: DownloadStrategy.values.asNameMap()[json['ruleSetDownload']] ?? DownloadStrategy.preferProxy,
+        ruleSetsUpdatedAt: DateTime.tryParse(json['ruleSetsUpdatedAt'] ?? ''),
         mixedPort: json['mixedPort'] ?? 17890,
         upstreamPort: json['upstreamPort'] ?? 17891,
         clashPort: json['clashPort'] ?? 17892,
@@ -429,6 +452,11 @@ class CoreSettings {
         'hideDisabledGroups': hideDisabledGroups,
         'testUrl': testUrl,
         'groups': groups,
+        'finalTarget': finalTarget,
+        'ruleSetUpdateHours': ruleSetUpdateHours,
+        'updateBundledRuleSets': updateBundledRuleSets,
+        'ruleSetDownload': ruleSetDownload.name,
+        'ruleSetsUpdatedAt': ruleSetsUpdatedAt?.toIso8601String(),
         'mixedPort': mixedPort,
         'upstreamPort': upstreamPort,
         'clashPort': clashPort,

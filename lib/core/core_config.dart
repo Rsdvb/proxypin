@@ -2,6 +2,7 @@ import 'clash_routing.dart';
 import 'core_settings.dart';
 import 'dns_catalog.dart';
 import 'rule_group.dart';
+import 'rule_sets.dart';
 import 'share_link.dart';
 
 /// 路由模式，切换时不需要重载配置，见 [CoreConfig.clashModeOf]
@@ -21,6 +22,9 @@ class CoreOptions {
 
   /// 机场规则里可用的规则集
   final Set<String> providerRuleSets;
+
+  /// 都没命中时的去向。[RuleTarget.selected] 时听机场规则的 MATCH
+  final String finalTarget;
 
   /// 配置自带的 DNS，优先用来解析节点域名
   final String? outboundDns;
@@ -66,6 +70,7 @@ class CoreOptions {
     this.groups = const [],
     this.providerRouting,
     this.providerRuleSets = const {},
+    this.finalTarget = RuleTarget.selected,
     this.outboundDns,
     DnsSettings? dns,
     TunSettings? tunSettings,
@@ -100,7 +105,7 @@ class CoreOptions {
 /// ```
 class CoreConfig {
   static const String _tagSelect = RuleTarget.selected;
-  static const String _tagAuto = 'auto';
+  static const String _tagAuto = RuleTarget.auto;
   static const String _tagDirect = RuleTarget.direct;
   static const String _tagMitm = 'rs-mitm';
   static const String _tagTun = 'tun-in';
@@ -112,6 +117,7 @@ class CoreConfig {
   static const String _dnsOutbound = 'dns-outbound';
   static const String _dnsResolver = 'dns-resolver';
   static const String _dnsHosts = 'dns-hosts';
+  static const String _dnsGroup = 'dns-group-';
 
   /// [CoreOptions.avoidLocalDns] 时代替系统 DNS
   static const String _fallbackLocalDns = 'udp://223.6.6.6';
@@ -228,14 +234,21 @@ class CoreConfig {
     final subnet = dns.clientSubnet && dns.clientSubnetValue.isNotEmpty ? dns.clientSubnetValue : null;
     final ttl = dns.ttl;
     final finalServer = dns.proxyResolve == ProxyResolve.direct ? _dnsDirect : _dnsProxy;
+    final nodeTags = options.nodes.map((e) => e['tag'].toString()).toList();
 
-    Map<String, dynamic> toDirect(Map<String, dynamic> match) => {
+    Map<String, dynamic> routeTo(String server, Map<String, dynamic> match) => {
           ...match,
           'action': 'route',
-          'server': _dnsDirect,
+          'server': server,
           if (subnet != null) 'client_subnet': subnet,
           if (ttl != null) 'rewrite_ttl': ttl,
         };
+
+    // 组单独指定的 DNS 走这个组的去向，这样解析结果和实际出口一致
+    final groupServers = <RuleGroup, String>{
+      for (final (index, group) in enabled.indexed)
+        if (group.dnsServer.isNotEmpty && group.target != RuleTarget.block) group: '$_dnsGroup$index',
+    };
 
     final hosts = <String, List<String>>{
       if (dns.staticIpForResolver) ...DnsCatalog.knownHosts,
@@ -253,6 +266,8 @@ class CoreConfig {
         server(dns.direct, _dnsDirect),
         server(options.outboundDns ?? dns.outbound, _dnsOutbound),
         _dnsServer(_usable(dns.resolver, options), _dnsResolver),
+        for (final MapEntry(key: group, value: tag) in groupServers.entries)
+          server(group.dnsServer, tag, detour: _outboundOf(group.target, nodeTags)),
         if (hosts.isNotEmpty) {'type': 'hosts', 'tag': _dnsHosts, 'predefined': hosts},
         if (fakeIp)
           {
@@ -273,10 +288,9 @@ class CoreConfig {
             'action': 'predefined',
             'rcode': 'NOERROR',
           },
-        if (dns.enableRule)
-          ..._dnsGroupRules(enabled, toDirect)
-        else if (enabled.any((e) => e.ruleSets.contains('geosite-cn')))
-          toDirect({'rule_set': 'geosite-cn'}),
+        ..._dnsGroupRules(enabled, routeTo, groupServers, followTargets: dns.enableRule),
+        if (!dns.enableRule && enabled.any((e) => e.ruleSets.contains('geosite-cn')))
+          routeTo(_dnsDirect, {'rule_set': 'geosite-cn'}),
         if (fakeIp)
           {
             'query_type': ['A', 'AAAA'],
@@ -295,10 +309,15 @@ class CoreConfig {
     };
   }
 
-  /// 分流组决定域名用哪个 DNS。走节点的组不用单独写，落到后面的 FakeIP 或代理 DNS 就对了。
-  /// geoip 规则集不能用于 DNS：解析之前还没有 IP
+  /// 分流组决定域名用哪个 DNS。单独指定了服务器的组总是生效；[followTargets] 时其余的组按去向来：
+  /// 直连用直连 DNS，拦截返回 NXDOMAIN。走节点的组不用单独写，落到后面的 FakeIP 或代理 DNS 就对了。
+  /// 只用 geosite 规则集：geoip 解析之前还没有 IP，其他来源的规则集可能混着 IP 规则
   static List<Map<String, dynamic>> _dnsGroupRules(
-      List<RuleGroup> groups, Map<String, dynamic> Function(Map<String, dynamic>) toDirect) {
+    List<RuleGroup> groups,
+    Map<String, dynamic> Function(String server, Map<String, dynamic> match) routeTo,
+    Map<RuleGroup, String> servers, {
+    required bool followTargets,
+  }) {
     final rules = <Map<String, dynamic>>[];
     for (final group in groups) {
       final geosites = group.ruleSets.where((e) => e.startsWith('geosite-')).toList();
@@ -310,10 +329,21 @@ class CoreConfig {
         if (group.domainRegexes.isNotEmpty) 'domain_regex': group.domainRegexes,
       };
       if (match.isEmpty) continue;
-      if (group.target == RuleTarget.direct) {
-        rules.add(toDirect(match));
-      } else if (group.target == RuleTarget.block) {
-        rules.add({...match, 'action': 'predefined', 'rcode': 'NXDOMAIN'});
+      if (!group.matchOr) {
+        if (group.networkTypes.isNotEmpty) match['network_type'] = group.networkTypes;
+        if (group.wifiSsids.isNotEmpty) match['wifi_ssid'] = group.wifiSsids;
+        if (group.wifiBssids.isNotEmpty) match['wifi_bssid'] = group.wifiBssids;
+      }
+
+      final server = servers[group];
+      if (server != null) {
+        rules.add(routeTo(server, match));
+      } else if (followTargets && !group.narrowsTraffic) {
+        if (group.target == RuleTarget.direct) {
+          rules.add(routeTo(_dnsDirect, match));
+        } else if (group.target == RuleTarget.block) {
+          rules.add({...match, 'action': 'predefined', 'rcode': 'NXDOMAIN'});
+        }
       }
     }
     return rules;
@@ -327,7 +357,9 @@ class CoreConfig {
   static Map<String, dynamic> _dnsServer(String server, String tag, {String? detour, String? resolver}) {
     if (server == DnsCatalog.local) return {'type': 'local', 'tag': tag};
     if (server == DnsCatalog.dhcp) return {'type': 'dhcp', 'tag': tag};
-    if (!server.contains('://')) return {'type': 'udp', 'tag': tag, 'server': server};
+    if (!server.contains('://')) {
+      return {'type': 'udp', 'tag': tag, 'server': server, if (detour != null) 'detour': detour};
+    }
 
     final uri = Uri.parse(server);
     final named = DnsServer('', server).usesHostName;
@@ -365,27 +397,42 @@ class CoreConfig {
           },
         for (final group in enabled) ..._groupRule(group, nodeTags),
         ...?provider?.routeRules(nodeTags, options.providerRuleSets, fallback: _tagSelect),
+        // route.final 只能是 outbound，拦截要写成最后一条规则
+        if (options.finalTarget == RuleTarget.block) {'action': 'reject'},
       ],
       'rule_set': [
         for (final name in ruleSets)
           {
             'type': 'local',
             'tag': name,
-            'format': 'binary',
-            'path': '${options.ruleSetDirectory}/$name.srs',
+            'format': RuleSets.isSource(name) ? 'source' : 'binary',
+            'path': '${options.ruleSetDirectory}/${RuleSets.fileName(name)}',
           },
       ],
-      'final': _final(provider, nodeTags),
+      'final': _final(options, nodeTags),
       'auto_detect_interface': true,
       'default_domain_resolver': {'server': _dnsOutbound},
     };
   }
 
-  /// 机场的 MATCH 规则决定兜底去向。route.final 只能是 outbound，拦截写不进去，就还走选中的节点
-  static String _final(ProviderRouting? provider, List<String> nodeTags) {
+  /// 用户选的兜底去向优先。没选时听机场的 MATCH 规则，它是拦截的话写不进 route.final，就还走选中的节点
+  static String _final(CoreOptions options, List<String> nodeTags) {
+    final chosen = options.finalTarget;
+    if (chosen != RuleTarget.selected) return _outboundOf(chosen, nodeTags) ?? _tagSelect;
+    final provider = options.providerRouting;
     final target = provider?.finalTarget;
     if (target == null) return _tagSelect;
     return provider!.action(target, nodeTags, fallback: _tagSelect)['outbound'] ?? _tagSelect;
+  }
+
+  /// 去向对应的 outbound。拦截没有 outbound，返回 null
+  static String? _outboundOf(String target, List<String> nodeTags) {
+    if (target == RuleTarget.block) return null;
+    if (target == RuleTarget.direct) return _tagDirect;
+    if (target == RuleTarget.auto && nodeTags.length > 1) return _tagAuto;
+    if (nodeTags.contains(target)) return target;
+    // 节点可能在订阅更新后消失了
+    return _tagSelect;
   }
 
   static List<Map<String, dynamic>> _mitmRules(String mode, List<String> frontDoors, List<String>? domains) {
@@ -402,18 +449,10 @@ class CoreConfig {
     ];
   }
 
+  /// 内核的默认语义：域名和 IP 这一类里任一条命中，再和端口、协议、进程这些类别同时满足
   static List<Map<String, dynamic>> _groupRule(RuleGroup group, List<String> nodeTags) {
-    final Map<String, dynamic> action;
-    if (group.target == RuleTarget.block) {
-      action = {'action': 'reject'};
-    } else if (group.target == RuleTarget.direct) {
-      action = {'action': 'route', 'outbound': _tagDirect};
-    } else if (nodeTags.contains(group.target)) {
-      action = {'action': 'route', 'outbound': group.target};
-    } else {
-      // 节点可能在订阅更新后消失了
-      action = {'action': 'route', 'outbound': _tagSelect};
-    }
+    final outbound = _outboundOf(group.target, nodeTags);
+    final action = outbound == null ? {'action': 'reject'} : {'action': 'route', 'outbound': outbound};
 
     final match = <String, dynamic>{
       if (group.ruleSets.isNotEmpty) 'rule_set': group.ruleSets,
@@ -422,8 +461,35 @@ class CoreConfig {
       if (group.domainKeywords.isNotEmpty) 'domain_keyword': group.domainKeywords,
       if (group.domainRegexes.isNotEmpty) 'domain_regex': group.domainRegexes,
       if (group.ipCidrs.isNotEmpty) 'ip_cidr': group.ipCidrs,
+      if (group.ports.isNotEmpty) 'port': group.ports,
+      if (group.portRanges.isNotEmpty) 'port_range': group.portRanges,
+      if (group.networks.isNotEmpty) 'network': group.networks,
+      if (group.protocols.isNotEmpty) 'protocol': group.protocols,
+      if (group.networkTypes.isNotEmpty) 'network_type': group.networkTypes,
+      if (group.wifiSsids.isNotEmpty) 'wifi_ssid': group.wifiSsids,
+      if (group.wifiBssids.isNotEmpty) 'wifi_bssid': group.wifiBssids,
       if (group.processNames.isNotEmpty) 'process_name': group.processNames,
+      if (group.processPaths.isNotEmpty) 'process_path': group.processPaths,
+      if (group.processDirs.isNotEmpty) 'process_path_regex': group.processDirs.map(_directoryRegex).toList(),
     };
-    return match.isEmpty ? const [] : [{...match, ...action}];
+    if (match.isEmpty) return const [];
+    if (group.matchOr && match.length > 1) {
+      return [
+        {
+          'type': 'logical',
+          'mode': 'or',
+          'rules': [for (final entry in match.entries) {entry.key: entry.value}],
+          ...action,
+        }
+      ];
+    }
+    return [{...match, ...action}];
+  }
+
+  /// 目录下的所有程序。Windows 的路径不分大小写
+  static String _directoryRegex(String directory) {
+    final trimmed = directory.replaceFirst(RegExp(r'[\\/]+$'), '');
+    final escaped = trimmed.replaceAllMapped(RegExp(r'[.*+?^${}()|[\]\\]'), (match) => '\\${match[0]}');
+    return '(?i)^$escaped[\\\\/]';
   }
 }

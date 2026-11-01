@@ -300,7 +300,16 @@ final class TunnelPlatform: NSObject, LibboxPlatformInterfaceProtocol, LibboxCom
     func usePlatformBridge() -> Bool { false }
     func localDNSTransport() -> (any LibboxLocalDNSTransportProtocol)? { nil }
     func systemCertificates() -> (any LibboxStringIteratorProtocol)? { nil }
-    func readWIFIState() -> LibboxWIFIState? { nil }
+    /// 分流规则用到 Wi-Fi 条件时内核才会来问。隧道开着时系统允许读，不需要定位权限
+    func readWIFIState() -> LibboxWIFIState? {
+        let network = runBlocking {
+            await NEHotspotNetwork.fetchCurrent()
+        }
+        guard let network else {
+            return nil
+        }
+        return LibboxWIFIState(network.ssid, wifiBSSID: network.bssid)
+    }
     func readWIFISSID() -> String? { nil }
     func tailscaleHostname() -> String { "" }
     func writeLog(_: String?) {}

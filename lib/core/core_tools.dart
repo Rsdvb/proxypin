@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/services.dart';
+
 import 'clash_api.dart';
 
 /// 规则检测的结果
@@ -26,6 +28,30 @@ class CheckResult {
 
 class CoreTools {
   static const Duration _timeout = Duration(seconds: 8);
+
+  /// 当前连接的 Wi-Fi，读不到时返回 null
+  static Future<({String ssid, String bssid})?> currentWifi() async {
+    try {
+      if (Platform.isIOS) {
+        final wifi = await const MethodChannel('rsproxy/core').invokeMapMethod<String, String>('wifiState');
+        return wifi == null ? null : (ssid: wifi['ssid'] ?? '', bssid: (wifi['bssid'] ?? '').toLowerCase());
+      }
+      if (Platform.isWindows) {
+        final result = await Process.run('netsh', ['wlan', 'show', 'interfaces']);
+        return parseNetshWifi(result.stdout.toString());
+      }
+    } on Exception {
+      return null;
+    }
+    return null;
+  }
+
+  /// netsh 的输出按系统语言翻译，只有 SSID 和 BSSID 这两个词不变，新版 Windows 写作 AP BSSID
+  static ({String ssid, String bssid})? parseNetshWifi(String output) {
+    final ssid = RegExp(r'^\s*SSID\s*:\s*(.+?)\s*$', multiLine: true).firstMatch(output)?.group(1);
+    final bssid = RegExp(r'BSSID\s*:\s*([0-9a-fA-F:]{17})').firstMatch(output)?.group(1);
+    return ssid == null ? null : (ssid: ssid, bssid: bssid?.toLowerCase() ?? '');
+  }
 
   /// 本机公网 IPv4 的 /24 网段，给 ECS 用。失败返回 null，下次再试
   static Future<String?> clientSubnet() async {

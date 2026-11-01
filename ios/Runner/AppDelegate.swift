@@ -102,6 +102,12 @@ final class ImportLinks {
             case "setKeepAlive":
                 self?.keepAlive = call.arguments as? Bool ?? false
                 result(nil)
+            case "wifiState":
+                NEHotspotNetwork.fetchCurrent { network in
+                    DispatchQueue.main.async {
+                        result(network.map { ["ssid": $0.ssid, "bssid": $0.bssid] })
+                    }
+                }
             default:
                 result(FlutterMethodNotImplemented)
             }

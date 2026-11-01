@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:proxypin/network/util/logger.dart';
 
 import 'clash_api.dart';
+import 'clash_routing.dart';
 import 'core_backup.dart';
 import 'core_config.dart';
 import 'core_platform.dart';
@@ -18,6 +19,7 @@ import 'import_link.dart';
 import 'profile.dart';
 import 'profile_parser.dart';
 import 'rule_group.dart';
+import 'rule_sets.dart';
 import 'subscription.dart';
 
 /// 解密端：RsProxy 自己的代理服务
@@ -74,6 +76,9 @@ class CoreManager extends ChangeNotifier {
   /// 查本机公网网段，测试时替换
   final Future<String?> Function() clientSubnetLookup;
 
+  /// 下载规则集，测试时替换
+  final Future<Uint8List> Function(Uri uri, String? proxy) fetchRuleSet;
+
   CoreSettings settings = CoreSettings();
   List<Profile> profiles = [];
   CoreState state = CoreState.stopped;
@@ -90,6 +95,9 @@ class CoreManager extends ChangeNotifier {
   /// 配置已更新，但内核还在用旧的，重新加载或下次连接后生效
   bool needsReload = false;
 
+  /// 分流用到、这次没准备好的规则集。对应的规则暂时不生效
+  Set<String> missingRuleSets = {};
+
   /// 等用户确认的一键导入。不直接添加：链接可能来自任何网页
   final ValueNotifier<ImportLink?> pendingImport = ValueNotifier(null);
   StreamSubscription<CoreState>? _states;
@@ -103,6 +111,7 @@ class CoreManager extends ChangeNotifier {
     this.alwaysTun = false,
     ClashApi Function(int port, String secret)? apiFactory,
     Future<String?> Function()? clientSubnetLookup,
+    this.fetchRuleSet = RuleSets.download,
   })  : _apiFactory = apiFactory ?? ((port, secret) => ClashApi(port: port, secret: secret)),
         clientSubnetLookup = clientSubnetLookup ?? CoreTools.clientSubnet;
 
@@ -239,6 +248,7 @@ class CoreManager extends ChangeNotifier {
         await platform.start(_tun ? settings.tunSettings.tunnelOptions : const {});
         await _afterStart();
         _setState(CoreState.running);
+        unawaited(_retryRuleSets());
       } catch (e) {
         logger.e('connect failed: $e');
         lastError = e.toString();
@@ -359,19 +369,23 @@ class CoreManager extends ChangeNotifier {
 
   Future<void> _writeConfig() async {
     final directory = await platform.directory();
-    final rules = Directory('${directory.path}/rules');
-    await rules.create(recursive: true);
+    final rules = await _ruleSetStore();
 
     final profile = activeProfile;
-    final routing = profile != null && profile.keepProviderRules && settings.providerRulesEnabled ? profile.routing : null;
+    final routing = _providerRouting;
     final dns = profile != null && profile.preferOutboundDns && profile.outboundDns.isNotEmpty ? profile.outboundDns.first : null;
+
+    final (names, urls) = _usedRuleSets();
+    final available = await rules.prepare(names, urls: urls, routes: _ruleSetRoutes);
+    missingRuleSets = {...names, ...urls.keys}.difference(available);
 
     final options = CoreOptions(
       nodes: nodes,
       selected: selectedNode,
-      groups: await _usableGroups(rules),
+      groups: _activeGroups.map((e) => e.usableOn(ios: alwaysTun, available: available)).nonNulls.toList(),
       providerRouting: routing,
-      providerRuleSets: routing == null ? const {} : await _installRuleSets(rules, routing.ruleSets),
+      providerRuleSets: routing == null ? const {} : available.intersection(routing.ruleSets.toSet()),
+      finalTarget: settings.finalTarget,
       outboundDns: dns,
       dns: settings.dns,
       tunSettings: settings.tunSettings,
@@ -387,7 +401,7 @@ class CoreManager extends ChangeNotifier {
       clashPort: settings.clashPort,
       clashSecret: settings.clashSecret,
       clashDefaultMode: CoreConfig.modeRule,
-      ruleSetDirectory: rules.path,
+      ruleSetDirectory: rules.directory.path,
       cachePath: await platform.cachePath(),
       testUrl: settings.testUrl,
     );
@@ -395,36 +409,83 @@ class CoreManager extends ChangeNotifier {
     needsReload = false;
   }
 
-  /// 把用到的规则集放到内核读得到的位置。缺文件的规则集不能写进配置，否则内核起不来
-  Future<List<RuleGroup>> _usableGroups(Directory directory) async {
-    final usable = <RuleGroup>[];
-    if (!settings.groupsEnabled) return usable;
-    for (final group in settings.groups) {
-      if (!group.enabled) continue;
-      final available = await _installRuleSets(directory, group.ruleSets);
-      usable.add(RuleGroup.fromJson(group.toJson())..ruleSets = available.toList());
-    }
-    return usable;
+  ProviderRouting? get _providerRouting {
+    final profile = activeProfile;
+    return profile != null && profile.keepProviderRules && settings.providerRulesEnabled ? profile.routing : null;
   }
 
-  /// 装好 [names] 里能找到的规则集，返回可用的。已经装过的不再读内置文件
-  Future<Set<String>> _installRuleSets(Directory directory, Iterable<String> names) async {
-    final available = <String>{};
-    for (final name in names) {
-      final file = File('${directory.path}/$name.srs');
-      if (await file.exists()) {
-        available.add(name);
-        continue;
-      }
-      final bytes = await loadRuleSet(name);
-      if (bytes == null) {
-        logger.w('rule set $name is missing');
-        continue;
-      }
-      await file.writeAsBytes(bytes);
-      available.add(name);
+  List<RuleGroup> get _activeGroups =>
+      settings.groupsEnabled ? settings.groups.where((e) => e.enabled).toList() : const [];
+
+  List<String?> get _ruleSetRoutes => settings.ruleSetDownload.routes(proxyAddress);
+
+  RuleSetStore? _ruleSets;
+
+  Future<RuleSetStore> _ruleSetStore() async {
+    final store = _ruleSets;
+    if (store != null) return store;
+    final directory = Directory('${(await platform.directory()).path}/rules');
+    await directory.create(recursive: true);
+    return _ruleSets = RuleSetStore(directory, bundled: loadRuleSet, fetch: fetchRuleSet);
+  }
+
+  /// 当前配置用到的规则集：名称，和用户填的地址（名称 -> 地址）
+  (Set<String>, Map<String, String>) _usedRuleSets() => (
+        {for (final group in _activeGroups) ...group.ruleSets, ...?_providerRouting?.ruleSets},
+        {
+          for (final group in _activeGroups)
+            for (final url in group.ruleSetUrls) RuleSets.tagOfUrl(url): url,
+        },
+      );
+
+  /// 连接前下载不到的规则集，连上之后再试一次：很多时候只有走节点才下载得到
+  Future<void> _retryRuleSets() async {
+    if (missingRuleSets.isEmpty) return;
+    try {
+      final store = await _ruleSetStore();
+      final (names, urls) = _usedRuleSets();
+      store.forgetFailures();
+      final available = await store.prepare(names, urls: urls, routes: _ruleSetRoutes, budget: const Duration(minutes: 1));
+      final missing = {...names, ...urls.keys}.difference(available);
+      if (missing.length == missingRuleSets.length) return;
+      missingRuleSets = missing;
+      needsReload = true;
+      notifyListeners();
+    } on Exception catch (e) {
+      logger.w('retry rule sets failed: $e');
     }
-    return available;
+  }
+
+  /// 分流页展示的状态
+  Future<List<RuleSetState>> ruleSetStates() async {
+    final (names, urls) = _usedRuleSets();
+    return (await _ruleSetStore()).states([...names, ...urls.keys]..sort());
+  }
+
+  /// 立即更新。返回 (成功数, 失败数)
+  Future<(int, int)> updateRuleSets({bool? includeBundled}) async {
+    final rules = await _ruleSetStore();
+    final (names, urls) = _usedRuleSets();
+    final result = await rules.refresh(names,
+        urls: urls, routes: _ruleSetRoutes, includeBundled: includeBundled ?? settings.updateBundledRuleSets);
+    settings.ruleSetsUpdatedAt = DateTime.now();
+    await store.saveSettings(settings);
+    // 已经在用的文件内核会自己重新加载，新下载到的要写进配置才生效
+    if (result.$1 > 0 && missingRuleSets.isNotEmpty) needsReload = true;
+    notifyListeners();
+    return result;
+  }
+
+  Future<void> _updateDueRuleSets() async {
+    final last = settings.ruleSetsUpdatedAt;
+    final interval = Duration(hours: settings.ruleSetUpdateHours);
+    if (last != null && DateTime.now().difference(last) < interval) return;
+    final (succeeded, failed) = await updateRuleSets();
+    // 全失败多半是没网，一小时后再试，不用等一整个周期
+    if (succeeded == 0 && failed > 0) {
+      settings.ruleSetsUpdatedAt = DateTime.now().subtract(interval).add(const Duration(hours: 1));
+      await store.saveSettings(settings);
+    }
   }
 
   /// 配置变了。运行中要重载内核，这会断开现有连接
@@ -580,6 +641,7 @@ class CoreManager extends ChangeNotifier {
     _updatingDue = true;
     try {
       await _updateDue();
+      await _updateDueRuleSets();
     } finally {
       _updatingDue = false;
     }
