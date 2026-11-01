@@ -7,6 +7,7 @@ import 'backup_page.dart';
 import 'connections_page.dart';
 import 'dns_page.dart';
 import 'home_stats.dart';
+import 'logs_pages.dart';
 import 'network_pages.dart';
 import 'tools_pages.dart';
 import 'tun_page.dart';
@@ -40,6 +41,8 @@ class MorePage extends StatelessWidget {
         entry(Icons.speed, '测速', const SpeedTestPage(), needsConnection: true),
         entry(Icons.alt_route, '规则检测', const RuleCheckPage(), needsConnection: true),
         entry(Icons.health_and_safety_outlined, '网络检测', const NetworkCheckPage(), needsConnection: true),
+        entry(Icons.article_outlined, '日志', const LogsPage(), needsConnection: true),
+        entry(Icons.bar_chart, '统计', const StatisticsPage()),
         const Divider(height: 1),
         entry(Icons.dns_outlined, 'DNS', const DnsPage()),
         entry(Icons.vpn_lock_outlined, 'TUN', const TunPage()),

@@ -23,6 +23,7 @@ import 'rule_group.dart';
 import 'rule_sets.dart';
 import 'share_link.dart';
 import 'subscription.dart';
+import 'traffic_stats.dart';
 
 /// 解密端：RsProxy 自己的代理服务
 abstract class MitmHost {
@@ -243,6 +244,7 @@ class CoreManager extends ChangeNotifier {
     settings = await store.loadSettings();
     profiles = await store.loadProfiles();
     _nodes = null;
+    trafficStats = await store.loadTraffic();
     (await store.loadLatency()).forEach((tag, delay) {
       if (delay < 0) {
         failedNodes.add(tag);
@@ -259,6 +261,7 @@ class CoreManager extends ChangeNotifier {
     if (await platform.isRunning()) {
       state = CoreState.running;
       await _applyCapture();
+      _startTimers();
     } else if (settings.systemProxyActive) {
       // 上次崩溃时没来得及清
       await _setSystemProxy(null);
@@ -271,6 +274,7 @@ class CoreManager extends ChangeNotifier {
     _states?.cancel();
     _links?.cancel();
     _autoUpdate?.cancel();
+    _stopTimers();
     pendingImport.dispose();
     _api?.close();
     super.dispose();
@@ -305,6 +309,7 @@ class CoreManager extends ChangeNotifier {
   }
 
   Future<void> _afterCrash() async {
+    _stopTimers();
     await _setConnectedAt(null);
     final failure = await platform.lastFailure();
     if (failure != null) {
@@ -336,6 +341,7 @@ class CoreManager extends ChangeNotifier {
         await _afterStart();
         await _setConnectedAt(DateTime.now());
         _setState(CoreState.running);
+        _startTimers();
         unawaited(_retryRuleSets());
       } catch (e) {
         logger.e('connect failed: $e');
@@ -348,6 +354,9 @@ class CoreManager extends ChangeNotifier {
 
   Future<void> disconnect() async {
     if (state != CoreState.running) return;
+    // 断开后内核的累计值就没了，要趁它还在读最后一次
+    await _recordTraffic();
+    _stopTimers();
     _setState(CoreState.stopping);
     await _transition(() async {
       try {
@@ -422,8 +431,88 @@ class CoreManager extends ChangeNotifier {
     }
   }
 
+  static const Duration _trafficInterval = Duration(minutes: 1);
+
+  Timer? _healthTimer;
+  Timer? _trafficTimer;
+
+  /// 流量统计和健康检查。iOS 上 App 挂起时定时器不走，回到前台再补上：内核的累计值一直在
+  void _startTimers() {
+    _stopTimers();
+    if (settings.statsEnabled) {
+      _trafficTimer = Timer.periodic(_trafficInterval, (_) => unawaited(_recordTraffic()));
+    }
+    final seconds = settings.autoHealthCheckSeconds;
+    if (seconds > 0) {
+      _healthTimer = Timer.periodic(Duration(seconds: seconds), (_) => unawaited(_checkHealth()));
+    }
+  }
+
+  void _stopTimers() {
+    _healthTimer?.cancel();
+    _healthTimer = null;
+    _trafficTimer?.cancel();
+    _trafficTimer = null;
+  }
+
+  /// 自动选择平时隔很久才测一次，正在用的节点坏了要等到下一轮。这里只查它一个，坏了才重测全部
+  Future<void> _checkHealth() async {
+    if (!isRunning || testing || (selectedNode ?? RuleTarget.auto) != RuleTarget.auto) return;
+    try {
+      final current = (await api.groups())[RuleTarget.auto]?.now;
+      if (current == null) return;
+      final delay = await api.delay(current, url: settings.testUrl);
+      _recordDelay(current, delay);
+      if (delay == null) await api.groupDelay(RuleTarget.auto, url: settings.testUrl);
+      notifyListeners();
+    } on Exception catch (e) {
+      logger.d('health check failed: $e');
+    }
+  }
+
+  TrafficStats trafficStats = TrafficStats();
+
+  Future<void> _recordTraffic() async {
+    if (!settings.statsEnabled || !isRunning) return;
+    try {
+      final snapshot = await api.connections();
+      trafficStats.record(snapshot.uploadTotal, snapshot.downloadTotal, DateTime.now(), keepDays: settings.statsDays);
+      await store.saveTraffic(trafficStats);
+    } on Exception catch (e) {
+      logger.d('traffic stats failed: $e');
+    }
+  }
+
+  Future<void> setStatsEnabled(bool enabled) async {
+    settings.statsEnabled = enabled;
+    await store.saveSettings(settings);
+    if (isRunning) _startTimers();
+    notifyListeners();
+  }
+
+  Future<void> clearTrafficStats() async {
+    trafficStats.clear();
+    await store.saveTraffic(trafficStats);
+    notifyListeners();
+  }
+
+  /// 全部订阅各更新一次，一份失败不影响其他。返回失败的份数
+  Future<int> updateAllProfiles() async {
+    var failed = 0;
+    for (final profile in profiles.where((e) => e.isSubscription).toList()) {
+      try {
+        await updateProfile(profile);
+      } on Exception catch (e) {
+        failed++;
+        logger.w('update ${profile.name} failed: $e');
+      }
+    }
+    return failed;
+  }
+
   /// App 回到前台。iOS 上隧道可能因为主 App 被挂起而退回了不解密，这里接回来
   Future<void> onResumed() async {
+    unawaited(_recordTraffic());
     if (isRunning && settings.capture) {
       await _applyCapture();
     }
@@ -517,9 +606,36 @@ class CoreManager extends ChangeNotifier {
       ruleSetDirectory: rules.directory.path,
       cachePath: await platform.cachePath(),
       testUrl: settings.testUrl,
+      logLevel: settings.logLevel,
     );
-    await File('${directory.path}/config.json').writeAsString(jsonEncode(CoreConfig.build(options)), flush: true);
+    final raw = settings.rawConfigName.isEmpty ? null : await store.loadRawConfig();
+    final config = raw == null ? CoreConfig.build(options) : _withControlApi(raw);
+    await File('${directory.path}/config.json').writeAsString(jsonEncode(config), flush: true);
     needsReload = false;
+  }
+
+  /// 用户自己的配置原样运行，只把控制接口换成 RsProxy 的：状态、节点和延迟都靠它
+  Map<String, dynamic> _withControlApi(Map<String, dynamic> raw) {
+    final experimental = (raw['experimental'] as Map?)?.cast<String, dynamic>() ?? const {};
+    return {
+      ...raw,
+      'experimental': {
+        ...experimental,
+        'clash_api': {
+          'external_controller': '127.0.0.1:${settings.clashPort}',
+          'secret': settings.clashSecret,
+        },
+      },
+    };
+  }
+
+  /// 换成用户自己的 sing-box 配置，[content] 为空时换回 RsProxy 生成的。不是 JSON 对象时抛 [FormatException]
+  Future<void> useRawConfig(String? name, String? content) async {
+    final Object? config = content == null ? null : jsonDecode(content);
+    if (content != null && config is! Map<String, dynamic>) throw const FormatException('not a sing-box config');
+    await store.saveRawConfig(config as Map<String, dynamic>?);
+    settings.rawConfigName = content == null ? '' : (name ?? 'config.json');
+    await applySettings();
   }
 
   ProviderRouting? get _providerRouting {
@@ -527,8 +643,12 @@ class CoreManager extends ChangeNotifier {
     return profile != null && profile.keepProviderRules && settings.providerRulesEnabled ? profile.routing : null;
   }
 
-  List<RuleGroup> get _activeGroups =>
-      settings.groupsEnabled ? settings.groups.where((e) => e.enabled).toList() : const [];
+  /// 地区基础规则排在用户的分流组后面，用户写的优先
+  List<RuleGroup> get _activeGroups => [
+        if (settings.groupsEnabled) ...settings.groups.where((e) => e.enabled),
+        if (settings.regionRules)
+          RuleGroup(id: 'region', name: '地区', target: RuleTarget.direct, ruleSets: RuleSets.ofRegion(settings.region)),
+      ];
 
   List<String?> get _ruleSetRoutes => settings.ruleSetDownload.routes(proxyAddress);
 
@@ -1149,6 +1269,7 @@ class CoreManager extends ChangeNotifier {
     await _applyConfig();
     // 绕过的域名可能改了
     if (settings.systemProxyActive) await _setSystemProxy(settings.mixedPort);
+    if (isRunning) _startTimers();
     notifyListeners();
   }
 

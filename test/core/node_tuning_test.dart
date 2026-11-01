@@ -33,7 +33,9 @@ const _reality = {
   'flow': 'xtls-rprx-vision',
   'tls': {
     'enabled': true,
-    'reality': {'enabled': true, 'public_key': 'k'},
+    'server_name': 'r.example',
+    'utls': {'enabled': true, 'fingerprint': 'chrome'},
+    'reality': {'enabled': true, 'public_key': 'jNXHt1yRo0vDuchQlIP6Z0ZvjT3KtzVI-T4E7RoLJS0', 'short_id': '0123456789abcdef'},
   },
 };
 const _plain = {'type': 'shadowsocks', 'tag': 'S', 'server': 's.example', 'server_port': 443, 'method': 'aes-128-gcm', 'password': 'p'};

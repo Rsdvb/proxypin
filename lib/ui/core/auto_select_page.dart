@@ -176,6 +176,13 @@ class _AutoSelectPageState extends State<AutoSelectPage> {
             value: settings.autoPreferFavorites,
             onChanged: (value) => setState(() => settings.autoPreferFavorites = value),
           ),
+          ListTile(
+            title: const Text('当前节点健康检查'),
+            subtitle: const Text('隔这么多秒查一次正在用的节点，不通就立刻重选。0 表示不查'),
+            trailing: Text(settings.autoHealthCheckSeconds > 0 ? '${settings.autoHealthCheckSeconds} 秒' : '未开启'),
+            onTap: () => _editNumber(
+                '健康检查间隔（秒）', settings.autoHealthCheckSeconds, 0, 3540, (e) => settings.autoHealthCheckSeconds = e == 0 ? 0 : (e < 3 ? 3 : e)),
+          ),
           SwitchListTile(
             title: const Text('手动测完延迟后换到最快的节点'),
             value: settings.autoUpdateAfterTest,

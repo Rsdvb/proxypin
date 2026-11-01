@@ -19,11 +19,18 @@ class _RuleSetsPageState extends State<RuleSetsPage> {
   final CoreManager _manager = CoreManager.instance;
   List<RuleSetState> _states = const [];
   bool _updating = false;
+  bool _regionChanged = false;
 
   @override
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void dispose() {
+    if (_regionChanged) _manager.applySettings();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -34,6 +41,15 @@ class _RuleSetsPageState extends State<RuleSetsPage> {
   void _change(VoidCallback change) {
     setState(change);
     _manager.saveUiSettings();
+  }
+
+  Future<void> _pickRegion() async {
+    final region = await Navigator.of(context).push<String>(MaterialPageRoute(
+      builder: (_) => RegionPage(current: _manager.settings.region),
+    ));
+    if (region == null || !mounted) return;
+    setState(() => _manager.settings.region = region);
+    _regionChanged = true;
   }
 
   Future<void> _editInterval() async {
@@ -77,6 +93,21 @@ class _RuleSetsPageState extends State<RuleSetsPage> {
       appBar: AppBar(title: const Text('规则集')),
       body: ListView(children: [
         ListTile(
+          title: const Text('地区'),
+          subtitle: const Text('决定地区基础规则走哪里直连，设错可能导致分流错误'),
+          trailing: Text(regionLabel(settings.region)),
+          onTap: _pickRegion,
+        ),
+        SwitchListTile(
+          title: const Text('自动追加地区基础规则'),
+          subtitle: const Text('这个地区的网站和 IP 走直连，排在你的分流组后面'),
+          value: settings.regionRules,
+          onChanged: (value) {
+            setState(() => settings.regionRules = value);
+            _regionChanged = true;
+          },
+        ),
+        ListTile(
           title: const Text('更新间隔'),
           trailing: Text('${settings.ruleSetUpdateHours} 小时'),
           onTap: _editInterval,
@@ -119,6 +150,97 @@ class _RuleSetsPageState extends State<RuleSetsPage> {
                 ? Text('未下载', style: TextStyle(color: theme.colorScheme.error))
                 : Text(formatDate(state.updatedAt!), style: theme.textTheme.bodySmall),
           ),
+      ]),
+    );
+  }
+}
+
+/// 地区的显示名。常见的给中文，其余显示代码
+String regionLabel(String code) {
+  const names = {
+    'cn': '中国大陆', 'hk': '香港', 'mo': '澳门', 'tw': '台湾', 'jp': '日本', 'kr': '韩国', 'sg': '新加坡', 'my': '马来西亚',
+    'th': '泰国', 'vn': '越南', 'id': '印度尼西亚', 'ph': '菲律宾', 'in': '印度', 'au': '澳大利亚', 'nz': '新西兰', 'us': '美国',
+    'ca': '加拿大', 'mx': '墨西哥', 'br': '巴西', 'ar': '阿根廷', 'gb': '英国', 'de': '德国', 'fr': '法国', 'it': '意大利',
+    'es': '西班牙', 'nl': '荷兰', 'se': '瑞典', 'no': '挪威', 'fi': '芬兰', 'dk': '丹麦', 'ch': '瑞士', 'at': '奥地利',
+    'ru': '俄罗斯', 'ua': '乌克兰', 'tr': '土耳其', 'ir': '伊朗', 'af': '阿富汗', 'ae': '阿联酋', 'sa': '沙特阿拉伯', 'za': '南非',
+  };
+  return names[code] ?? code.toUpperCase();
+}
+
+/// 选地区。列表来自规则集清单，只列真有数据的地区
+class RegionPage extends StatefulWidget {
+  final String current;
+
+  const RegionPage({super.key, required this.current});
+
+  @override
+  State<RegionPage> createState() => _RegionPageState();
+}
+
+class _RegionPageState extends State<RegionPage> {
+  /// 这几个 geoip 规则集不是地区
+  static const Set<String> _notRegions = {'private'};
+
+  List<String> _regions = const [];
+  String _query = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    List<String> names = [widget.current];
+    try {
+      final text = await rootBundle.loadString('assets/rules/index.txt');
+      names = text
+          .split('\n')
+          .map((e) => e.trim())
+          .where((e) => e.startsWith('geoip-'))
+          .map((e) => e.substring('geoip-'.length))
+          .where((e) => e.length == 2 && !_notRegions.contains(e))
+          .toList();
+    } on FlutterError {
+      // 开发时没有跑 fetch_rule_sets.sh，这里只有当前地区
+    }
+    if (mounted) setState(() => _regions = names);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final query = _query.toLowerCase();
+    final regions = _regions.where((e) => e.startsWith(query) || regionLabel(e).contains(_query)).toList()
+      ..sort((a, b) {
+        // 有中文名的常见地区排前面
+        final known = (regionLabel(a) == a.toUpperCase() ? 1 : 0) - (regionLabel(b) == b.toUpperCase() ? 1 : 0);
+        return known != 0 ? known : a.compareTo(b);
+      });
+    return Scaffold(
+      appBar: AppBar(title: const Text('地区')),
+      body: Column(children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+          child: TextField(
+            decoration: const InputDecoration(hintText: '搜索', prefixIcon: Icon(Icons.search), isDense: true),
+            onChanged: (value) => setState(() => _query = value.trim()),
+          ),
+        ),
+        Expanded(
+          child: ListView.builder(
+            itemCount: regions.length,
+            itemBuilder: (context, index) {
+              final region = regions[index];
+              return ListTile(
+                dense: true,
+                title: Text(regionLabel(region)),
+                subtitle: Text(region.toUpperCase()),
+                trailing: region == widget.current ? const Icon(Icons.check) : null,
+                onTap: () => Navigator.pop(context, region),
+              );
+            },
+          ),
+        ),
       ]),
     );
   }

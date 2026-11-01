@@ -12,6 +12,9 @@ abstract class RuleSets {
   /// 内核支持的 .srs 最高版本，更新的文件它读不了
   static const int _maxBinaryVersion = 5;
 
+  /// 某个地区走直连的规则集。各地区都有 geoip，geosite 只有中国大陆的数据是全的
+  static List<String> ofRegion(String region) => [if (region == 'cn') 'geosite-cn', 'geoip-$region'];
+
   static String fileName(String name) => isSource(name) ? name : '$name.srs';
 
   /// JSON 格式的规则集，其余是二进制

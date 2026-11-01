@@ -60,6 +60,16 @@ class ProfilesPage extends StatelessWidget {
               onPressed: () =>
                   Navigator.of(context).push(MaterialPageRoute(builder: (_) => const MergeProfilesPage())),
             ),
+          if (manager.profiles.any((e) => e.isSubscription))
+            IconButton(
+              tooltip: '全部更新',
+              icon: const Icon(Icons.refresh),
+              onPressed: () async {
+                final messenger = ScaffoldMessenger.of(context);
+                final failed = await manager.updateAllProfiles();
+                messenger.showSnackBar(SnackBar(content: Text(failed == 0 ? '已全部更新' : '$failed 份更新失败')));
+              },
+            ),
           IconButton(
             tooltip: '新建空配置',
             icon: const Icon(Icons.note_add_outlined),

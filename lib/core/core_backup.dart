@@ -78,6 +78,7 @@ class CoreBackup {
     'upstreamPort',
     'clashPort',
     'probePort',
+    'rawConfigName',
     'directPort',
     'globalPort',
     'lanEnabled',

@@ -6,6 +6,7 @@ import 'core_config.dart';
 import 'dns_catalog.dart';
 import 'profile.dart';
 import 'rule_group.dart';
+import 'traffic_stats.dart';
 
 /// IPv6 策略，默认关闭：节点没有 IPv6 时开着反而容易连不上
 enum IpStrategy { ipv4Only, preferIpv4, preferIpv6, ipv6Only }
@@ -500,6 +501,23 @@ class CoreSettings {
   String mixedUsername;
   String mixedPassword;
 
+  /// 地区的两位代码，小写
+  String region;
+
+  /// 分流最后追加“这个地区直连”。默认分流组里已经有中国大陆，所以默认关
+  bool regionRules;
+
+  /// 自动选择时多久检查一次正在用的节点，秒，0 表示不检查。不通就立刻重选，不等下一轮测试
+  int autoHealthCheckSeconds;
+
+  /// 内核日志级别
+  String logLevel;
+  bool statsEnabled;
+  int statsDays;
+
+  /// 用户自己的 sing-box 配置的文件名，空表示用 RsProxy 生成的
+  String rawConfigName;
+
   /// 添加配置后自动备份，换手机或误删时能找回来
   bool autoBackupOnAdd;
   bool autoBackupOnRemove;
@@ -606,6 +624,13 @@ class CoreSettings {
     this.lanPassword = '',
     this.mixedUsername = '',
     this.mixedPassword = '',
+    String? region,
+    this.regionRules = false,
+    this.autoHealthCheckSeconds = 0,
+    this.logLevel = 'warn',
+    this.statsEnabled = false,
+    this.statsDays = 7,
+    this.rawConfigName = '',
     this.autoBackupOnAdd = true,
     this.autoBackupOnRemove = false,
     this.webDavDownload = DownloadStrategy.preferDirect,
@@ -643,6 +668,7 @@ class CoreSettings {
         dns = dns ?? DnsSettings(),
         tunSettings = tunSettings ?? TunSettings(),
         bypassDomains = bypassDomains ?? [...defaultBypassDomains],
+        region = region ?? _systemRegion(),
         tuning = tuning ?? NodeTuning(),
         homeStats = homeStats ?? [HomeStat.speed],
         disabledNodes = disabledNodes ?? {},
@@ -654,6 +680,12 @@ class CoreSettings {
         deviceId = deviceId ?? _randomDeviceId(),
         groups = groups ?? RuleGroup.defaults(),
         clashSecret = clashSecret ?? _randomSecret();
+
+  /// zh_CN、zh-Hans-CN 取最后一段，取不到时用 cn：这个软件主要在国内用
+  static String _systemRegion() {
+    final last = Platform.localeName.split('.').first.split(RegExp('[-_]')).last.toLowerCase();
+    return RegExp(r'^[a-z]{2}$').hasMatch(last) ? last : 'cn';
+  }
 
   static const List<String> defaultBypassDomains = ['localhost', '127.*', '10.*', '172.16.*', '192.168.*', '<local>'];
 
@@ -704,6 +736,13 @@ class CoreSettings {
         lanPassword: json['lanPassword'] ?? '',
         mixedUsername: json['mixedUsername'] ?? '',
         mixedPassword: json['mixedPassword'] ?? '',
+        region: json['region'],
+        regionRules: json['regionRules'] ?? false,
+        autoHealthCheckSeconds: json['autoHealthCheckSeconds'] ?? 0,
+        logLevel: json['logLevel'] ?? 'warn',
+        statsEnabled: json['statsEnabled'] ?? false,
+        statsDays: json['statsDays'] ?? 7,
+        rawConfigName: json['rawConfigName'] ?? '',
         autoBackupOnAdd: json['autoBackupOnAdd'] ?? true,
         autoBackupOnRemove: json['autoBackupOnRemove'] ?? false,
         webDavDownload: DownloadStrategy.values.asNameMap()[json['webDavDownload']] ?? DownloadStrategy.preferDirect,
@@ -774,6 +813,13 @@ class CoreSettings {
         'lanPassword': lanPassword,
         'mixedUsername': mixedUsername,
         'mixedPassword': mixedPassword,
+        'region': region,
+        'regionRules': regionRules,
+        'autoHealthCheckSeconds': autoHealthCheckSeconds,
+        'logLevel': logLevel,
+        'statsEnabled': statsEnabled,
+        'statsDays': statsDays,
+        'rawConfigName': rawConfigName,
         'autoBackupOnAdd': autoBackupOnAdd,
         'autoBackupOnRemove': autoBackupOnRemove,
         'webDavDownload': webDavDownload.name,
@@ -822,6 +868,10 @@ class CoreStore {
   /// 节点多时这张表不小，不放进设置里跟着每次保存
   File get _latencyFile => File('${directory.path}/latency.json');
 
+  File get _trafficFile => File('${directory.path}/traffic.json');
+
+  File get _rawConfigFile => File('${directory.path}/raw_config.json');
+
   Future<CoreSettings> loadSettings() async {
     final json = await _read(_settingsFile);
     return json is Map<String, dynamic> ? CoreSettings.fromJson(json) : CoreSettings();
@@ -839,6 +889,24 @@ class CoreStore {
   }
 
   Future<void> saveLatency(Map<String, int> latency) => _write(_latencyFile, latency);
+
+  Future<TrafficStats> loadTraffic() async {
+    final json = await _read(_trafficFile);
+    return json is Map<String, dynamic> ? TrafficStats.fromJson(json) : TrafficStats();
+  }
+
+  Future<void> saveTraffic(TrafficStats stats) => _write(_trafficFile, stats);
+
+  /// 用户自己的 sing-box 配置，读不了时返回 null
+  Future<Map<String, dynamic>?> loadRawConfig() async {
+    final json = await _read(_rawConfigFile);
+    return json is Map<String, dynamic> ? json : null;
+  }
+
+  Future<void> saveRawConfig(Map<String, dynamic>? config) async {
+    if (config != null) return _write(_rawConfigFile, config);
+    if (await _rawConfigFile.exists()) await _rawConfigFile.delete();
+  }
 
   Future<void> saveSettings(CoreSettings settings) => _write(_settingsFile, settings);
 

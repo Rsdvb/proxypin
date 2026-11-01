@@ -108,6 +108,14 @@ class TrafficSample {
   const TrafficSample(this.up, this.down);
 }
 
+/// 一行内核日志
+class CoreLog {
+  final String level;
+  final String message;
+
+  const CoreLog(this.level, this.message);
+}
+
 /// sing-box 内置的 Clash API。Windows 和 iOS 都走它，界面不用区分内核跑在哪个进程
 class ClashApi {
   static const Duration _timeout = Duration(seconds: 5);
@@ -202,6 +210,34 @@ class ClashApi {
   Future<void> closeConnection(String id) => _json('DELETE', '/connections/${Uri.encodeComponent(id)}');
 
   Future<void> closeAllConnections() => _json('DELETE', '/connections');
+
+  /// 内核日志，取消订阅时断开。没有日志时内核连响应头都不回，所以不能设超时，
+  /// 也不能用生成器：取消时还卡在等响应，要关掉连接才退得出来
+  Stream<CoreLog> logs({String level = 'info'}) {
+    final client = HttpClient()..findProxy = (_) => 'DIRECT';
+    late final StreamController<CoreLog> controller;
+    controller = StreamController(
+      onListen: () async {
+        try {
+          final uri = Uri.parse('http://$host:$port/logs?level=$level');
+          final request = await client.getUrl(uri).timeout(_timeout);
+          request.headers.set(HttpHeaders.authorizationHeader, 'Bearer $secret');
+          final response = await request.close();
+          await for (final line in response.transform(utf8.decoder).transform(const LineSplitter())) {
+            if (line.trim().isEmpty) continue;
+            final json = jsonDecode(line) as Map<String, dynamic>;
+            controller.add(CoreLog(json['type']?.toString() ?? '', json['payload']?.toString() ?? ''));
+          }
+        } on Exception catch (e) {
+          if (!controller.isClosed) controller.addError(e);
+        } finally {
+          if (!controller.isClosed) unawaited(controller.close());
+        }
+      },
+      onCancel: () => client.close(force: true),
+    );
+    return controller.stream;
+  }
 
   /// 每秒一个样本，取消订阅时断开。只在界面可见时才订阅，省电
   Stream<TrafficSample> traffic() async* {

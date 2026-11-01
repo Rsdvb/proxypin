@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:proxypin/core/core_manager.dart';
 import 'package:proxypin/core/core_settings.dart';
@@ -68,6 +70,23 @@ class _AdvancedPageState extends State<AdvancedPage> {
     }
   }
 
+  Future<void> _pickRawConfig() async {
+    final messenger = ScaffoldMessenger.of(context);
+    final file = await FilePicker.pickFile(type: FileType.custom, allowedExtensions: ['json']);
+    if (file == null) return;
+    try {
+      await _manager.useRawConfig(file.name, utf8.decode(await file.readAsBytes()));
+      if (mounted) setState(() {});
+    } on FormatException {
+      messenger.showSnackBar(const SnackBar(content: Text('这不是 sing-box 配置文件')));
+    }
+  }
+
+  Future<void> _clearRawConfig() async {
+    await _manager.useRawConfig(null, null);
+    if (mounted) setState(() {});
+  }
+
   Future<void> _openBypass() async {
     await Navigator.of(context).push(MaterialPageRoute(builder: (_) => const BypassDomainsPage()));
     if (mounted) setState(() => _changed = true);
@@ -99,6 +118,16 @@ class _AdvancedPageState extends State<AdvancedPage> {
           title: const Text('打开 App 时自动连接'),
           value: _settings.autoConnect,
           onChanged: (value) => _change(() => _settings.autoConnect = value),
+        ),
+        ListTile(
+          title: const Text('使用原始 sing-box 配置'),
+          subtitle: Text(_settings.rawConfigName.isEmpty
+              ? '选一个配置文件直接运行，RsProxy 的分流和解密都不再生效'
+              : '正在使用 ${_settings.rawConfigName}'),
+          trailing: _settings.rawConfigName.isEmpty
+              ? const Icon(Icons.chevron_right)
+              : IconButton(tooltip: '清除', icon: const Icon(Icons.close), onPressed: _clearRawConfig),
+          onTap: _pickRawConfig,
         ),
         if (Platform.isWindows) ...[
           SwitchListTile(
