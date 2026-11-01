@@ -115,7 +115,7 @@ jobs:
           curl -fsSL --retry 3 -o sing-box.zip "https://github.com/SagerNet/sing-box/releases/download/v$SING_BOX_VERSION/$name.zip"
           unzip -q sing-box.zip
           cp "$name/sing-box.exe" build/windows/x64/runner/Release/
-          echo "SING_BOX_BIN=$PWD/$name/sing-box.exe" >> "$GITHUB_ENV"
+          echo "SING_BOX_BIN=$(cygpath -w "$PWD/$name/sing-box.exe")" >> "$GITHUB_ENV"
       - name: Run core tests against sing-box on Windows
         run: flutter test test/core/mitm_chain_test.dart test/core/windows_platform_test.dart
       - uses: actions/upload-artifact@v4
