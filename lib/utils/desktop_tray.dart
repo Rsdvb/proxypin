@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:menu_base/menu_base.dart';
+import 'package:proxypin/core/core_manager.dart';
 import 'package:tray_manager/tray_manager.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -28,9 +29,20 @@ class DesktopTrayManager with TrayListener {
     trayManager.addListener(this);
     await trayManager.setIcon('assets/icon.ico');
     await trayManager.setToolTip('RsProxy');
+    await _updateMenu();
+    if (CoreManager.isReady) CoreManager.instance.addListener(_updateMenu);
+  }
+
+  Future<void> _updateMenu() async {
+    final connected = CoreManager.isReady && CoreManager.instance.isRunning;
     await trayManager.setContextMenu(
       Menu(
         items: [
+          if (CoreManager.isReady)
+            MenuItem(
+              key: 'toggle_connection',
+              label: connected ? _text('断开', 'Disconnect') : _text('连接', 'Connect'),
+            ),
           MenuItem(
             key: 'show_window',
             label: _text('显示窗口', 'Show window'),
@@ -79,6 +91,10 @@ class DesktopTrayManager with TrayListener {
   @override
   void onTrayMenuItemClick(MenuItem menuItem) {
     switch (menuItem.key) {
+      case 'toggle_connection':
+        final manager = CoreManager.instance;
+        unawaited(manager.isRunning ? manager.disconnect() : manager.connect());
+        break;
       case 'show_window':
         unawaited(restoreWindow());
         break;

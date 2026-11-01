@@ -63,7 +63,7 @@ class CoreTools {
       ..findProxy = ((_) => 'PROXY $proxy');
     final stopwatch = Stopwatch();
     var received = 0;
-    double speed() => stopwatch.elapsedMilliseconds == 0 ? 0 : received * 1000 / stopwatch.elapsedMilliseconds;
+    double speed() => stopwatch.elapsedMicroseconds == 0 ? 0 : received * 1000000 / stopwatch.elapsedMicroseconds;
 
     try {
       final request = await client.getUrl(Uri.parse(url)).timeout(_timeout);

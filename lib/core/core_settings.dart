@@ -26,6 +26,12 @@ class CoreSettings {
 
   /// Windows：连接时是否设置系统代理
   bool systemProxy;
+
+  /// 系统代理现在指向我们。崩溃后靠它知道要清掉，否则代理指着死端口，整机上不了网
+  bool systemProxyActive;
+
+  /// 启动 App 时自动连接
+  bool autoConnect;
   bool fakeIp;
   bool ipv6;
   String remoteDns;
@@ -48,6 +54,8 @@ class CoreSettings {
     this.capture = false,
     this.tun = false,
     this.systemProxy = true,
+    this.systemProxyActive = false,
+    this.autoConnect = false,
     this.fakeIp = true,
     this.ipv6 = true,
     this.remoteDns = 'https://1.1.1.1/dns-query',
@@ -80,6 +88,8 @@ class CoreSettings {
         capture: json['capture'] ?? false,
         tun: json['tun'] ?? false,
         systemProxy: json['systemProxy'] ?? true,
+        systemProxyActive: json['systemProxyActive'] ?? false,
+        autoConnect: json['autoConnect'] ?? false,
         fakeIp: json['fakeIp'] ?? true,
         ipv6: json['ipv6'] ?? true,
         remoteDns: json['remoteDns'] ?? 'https://1.1.1.1/dns-query',
@@ -103,6 +113,8 @@ class CoreSettings {
         'capture': capture,
         'tun': tun,
         'systemProxy': systemProxy,
+        'systemProxyActive': systemProxyActive,
+        'autoConnect': autoConnect,
         'fakeIp': fakeIp,
         'ipv6': ipv6,
         'remoteDns': remoteDns,

@@ -162,6 +162,10 @@ class _SocketLaunchState extends State<SocketLaunch> with WindowListener, Widget
 
   Future<void> appExit() async {
     logger.d("appExit");
+    // Windows 上内核跟着 App 退出，系统代理必须先清掉。iOS 的隧道是独立进程，继续运行
+    if (Platform.isWindows && CoreManager.isReady) {
+      await CoreManager.instance.disconnect();
+    }
     await widget.proxyServer.stop();
     started = false;
     if (Platforms.isDesktop()) {

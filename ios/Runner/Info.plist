@@ -31,6 +31,26 @@
 	<string>$(FLUTTER_BUILD_NAME)</string>
 	<key>CFBundleSignature</key>
 	<string>????</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>CFBundleURLName</key>
+			<string>io.github.rsdvb.rsproxy.import</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>rsproxy</string>
+				<string>clash</string>
+				<string>clashx</string>
+				<string>clash-meta</string>
+				<string>sing-box</string>
+				<string>karing</string>
+				<string>shadowrocket</string>
+				<string>sub</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>

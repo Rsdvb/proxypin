@@ -11,6 +11,7 @@ import 'core_backup.dart';
 import 'core_config.dart';
 import 'core_platform.dart';
 import 'core_settings.dart';
+import 'import_link.dart';
 import 'profile.dart';
 import 'profile_parser.dart';
 import 'rule_group.dart';
@@ -69,7 +70,11 @@ class CoreManager extends ChangeNotifier {
 
   /// 延迟测试进行中
   bool testing = false;
+
+  /// 等用户确认的一键导入。不直接添加：链接可能来自任何网页
+  final ValueNotifier<ImportLink?> pendingImport = ValueNotifier(null);
   StreamSubscription<CoreState>? _states;
+  StreamSubscription<String>? _links;
 
   CoreManager({
     required this.platform,
@@ -131,11 +136,17 @@ class CoreManager extends ChangeNotifier {
     settings = await store.loadSettings();
     profiles = await store.loadProfiles();
     _states = platform.states.listen(_onState);
+    _links = platform.links.listen(_onLink);
+    final link = await platform.takePendingLink();
+    if (link != null) _onLink(link);
 
     // iOS 上隧道可能比 App 活得久
     if (await platform.isRunning()) {
       state = CoreState.running;
       await _applyCapture();
+    } else if (settings.systemProxyActive) {
+      // 上次崩溃时没来得及清
+      await _setSystemProxy(null);
     }
     notifyListeners();
   }
@@ -143,14 +154,50 @@ class CoreManager extends ChangeNotifier {
   @override
   void dispose() {
     _states?.cancel();
+    _links?.cancel();
+    pendingImport.dispose();
     _api?.close();
     super.dispose();
   }
 
+  void _onLink(String link) {
+    final parsed = ImportLink.parse(link);
+    if (parsed != null) pendingImport.value = parsed;
+  }
+
+  /// 连接、断开、重载期间平台的状态是过程中的，以这几个流程的结果为准
+  int _transitions = 0;
+
+  Future<T> _transition<T>(Future<T> Function() action) async {
+    _transitions++;
+    try {
+      return await action();
+    } finally {
+      _transitions--;
+    }
+  }
+
   void _onState(CoreState value) {
-    if (state == value) return;
+    if (_transitions > 0 || state == value) return;
+    final crashed = value == CoreState.stopped && state == CoreState.running;
     state = value;
+    if (crashed) {
+      lastError = '内核意外退出';
+      unawaited(_afterCrash());
+    }
     notifyListeners();
+  }
+
+  Future<void> _afterCrash() async {
+    await _setSystemProxy(null);
+    await platform.setKeepAlive(false);
+    await mitm.detach();
+  }
+
+  Future<void> _setSystemProxy(int? port) async {
+    await platform.setSystemProxy(port);
+    settings.systemProxyActive = port != null;
+    await store.saveSettings(settings);
   }
 
   // ---- 连接 ----
@@ -159,31 +206,36 @@ class CoreManager extends ChangeNotifier {
     if (state != CoreState.stopped) return;
     lastError = null;
     _setState(CoreState.starting);
-    try {
-      await _writeConfig();
-      await platform.start();
-      await _afterStart();
-      _setState(CoreState.running);
-    } catch (e) {
-      logger.e('connect failed: $e');
-      lastError = e.toString();
-      await platform.stop().catchError((_) {});
-      _setState(CoreState.stopped);
-    }
+    await _transition(() async {
+      try {
+        await _writeConfig();
+        await platform.start();
+        await _afterStart();
+        _setState(CoreState.running);
+      } catch (e) {
+        logger.e('connect failed: $e');
+        lastError = e.toString();
+        await platform.stop().catchError((_) {});
+        _setState(CoreState.stopped);
+      }
+    });
   }
 
   Future<void> disconnect() async {
     if (state != CoreState.running) return;
     _setState(CoreState.stopping);
-    try {
-      await platform.unwatchCapture();
-      await platform.setKeepAlive(false);
-      await platform.setSystemProxy(null);
-      await mitm.detach();
-      await platform.stop();
-    } finally {
-      _setState(CoreState.stopped);
-    }
+    await _transition(() async {
+      try {
+        await platform.unwatchCapture();
+        await platform.setKeepAlive(false);
+        // 先清代理再停内核：反过来的话，中间这段时间整机上不了网
+        await _setSystemProxy(null);
+        await mitm.detach();
+        await platform.stop();
+      } finally {
+        _setState(CoreState.stopped);
+      }
+    });
   }
 
   void _setState(CoreState value) {
@@ -196,7 +248,7 @@ class CoreManager extends ChangeNotifier {
     await _waitForApi();
     await _applyCapture();
     if (settings.systemProxy && !_tun) {
-      await platform.setSystemProxy(settings.mixedPort);
+      await _setSystemProxy(settings.mixedPort);
     }
   }
 
@@ -263,7 +315,7 @@ class CoreManager extends ChangeNotifier {
     settings.systemProxy = enabled;
     await store.saveSettings(settings);
     if (isRunning && !_tun) {
-      await platform.setSystemProxy(enabled ? settings.mixedPort : null);
+      await _setSystemProxy(enabled ? settings.mixedPort : null);
     }
     notifyListeners();
   }
@@ -325,9 +377,11 @@ class CoreManager extends ChangeNotifier {
   Future<void> _applyConfig() async {
     if (!isRunning) return;
     await _writeConfig();
-    await platform.reload();
-    await _waitForApi();
-    await _applyCapture();
+    await _transition(() async {
+      await platform.reload();
+      await _waitForApi();
+      await _applyCapture();
+    });
   }
 
   /// 解密名单变了
@@ -546,13 +600,17 @@ class CoreManager extends ChangeNotifier {
     required String testUrl,
     required bool fakeIp,
     required bool ipv6,
+    bool? tun,
+    bool? autoConnect,
   }) async {
     if (remoteDns.isNotEmpty) settings.remoteDns = remoteDns;
     if (directDns.isNotEmpty) settings.directDns = directDns;
     if (testUrl.isNotEmpty) settings.testUrl = testUrl;
     settings
       ..fakeIp = fakeIp
-      ..ipv6 = ipv6;
+      ..ipv6 = ipv6
+      ..tun = tun ?? settings.tun
+      ..autoConnect = autoConnect ?? settings.autoConnect;
     await store.saveSettings(settings);
     await _applyConfig();
     notifyListeners();

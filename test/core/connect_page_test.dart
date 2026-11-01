@@ -17,6 +17,12 @@ class _Platform implements CorePlatform {
   Stream<CoreState> get states => const Stream.empty();
 
   @override
+  Stream<String> get links => const Stream.empty();
+
+  @override
+  Future<String?> takePendingLink() async => null;
+
+  @override
   Future<Directory> directory() async => Directory.systemTemp;
 
   @override

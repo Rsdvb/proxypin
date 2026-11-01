@@ -18,10 +18,19 @@ class _Platform implements CorePlatform {
   bool running = false;
   Object? startError;
 
+  /// What the platform reports during a reload. Windows restarts the process.
+  List<CoreState> reloadStates = const [];
+
   _Platform(this.root);
 
   @override
   Stream<CoreState> get states => controller.stream;
+
+  @override
+  Stream<String> get links => const Stream.empty();
+
+  @override
+  Future<String?> takePendingLink() async => null;
 
   @override
   Future<Directory> directory() async => root;
@@ -40,7 +49,13 @@ class _Platform implements CorePlatform {
   }
 
   @override
-  Future<void> reload() async => calls.add('reload');
+  Future<void> reload() async {
+    calls.add('reload');
+    for (final state in reloadStates) {
+      controller.add(state);
+      await Future.delayed(Duration.zero);
+    }
+  }
 
   @override
   Future<void> stop() async {
@@ -202,6 +217,64 @@ void main() {
       final sets = (writtenConfig()['route']['rule_set'] as List).map((e) => e['tag']);
       expect(sets, ['geosite-netflix']);
       expect(File('${root.path}/rules/geosite-netflix.srs').existsSync(), isTrue);
+    });
+  });
+
+  group('the system proxy never outlives the core', () {
+    test('a crash clears it and says what happened', () async {
+      await manager.connect();
+      platform.calls.clear();
+
+      platform.controller.add(CoreState.stopped);
+      await Future.delayed(const Duration(milliseconds: 20));
+
+      expect(platform.calls, contains('systemProxy:null'));
+      expect(manager.state, CoreState.stopped);
+      expect(manager.lastError, isNotNull);
+    });
+
+    test('left behind by an app crash, it is cleared on the next launch', () async {
+      await manager.connect();
+      platform.running = false;
+      platform.calls.clear();
+
+      final next = build();
+      await next.load();
+
+      expect(platform.calls, contains('systemProxy:null'));
+      expect(next.settings.systemProxyActive, isFalse);
+    });
+
+    test('a clean exit leaves nothing to clear', () async {
+      await manager.connect();
+      await manager.disconnect();
+      platform.calls.clear();
+
+      final next = build();
+      await next.load();
+
+      expect(platform.calls, isNot(contains('systemProxy:null')));
+    });
+
+    test('someone else\'s proxy is left alone', () async {
+      final next = build();
+      platform.calls.clear();
+      await next.load();
+      expect(platform.calls, isEmpty);
+    });
+
+    test('a reload is not mistaken for a crash', () async {
+      await manager.connect();
+      await manager.addProfile(twoNodes);
+      platform.calls.clear();
+      platform.reloadStates = [CoreState.stopping, CoreState.stopped, CoreState.running];
+
+      await manager.saveGroups([]);
+      await Future.delayed(const Duration(milliseconds: 20));
+
+      expect(platform.calls, isNot(contains('systemProxy:null')));
+      expect(manager.state, CoreState.running);
+      expect(manager.lastError, isNull);
     });
   });
 

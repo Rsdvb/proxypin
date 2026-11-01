@@ -173,15 +173,19 @@ class _ProfileCardState extends State<_ProfileCard> {
 
 /// 添加配置：一个输入框就够了。订阅和配置内容自动识别，名称自动取
 class AddProfilePage extends StatefulWidget {
-  const AddProfilePage({super.key});
+  /// 一键导入时预先填好，用户看过再点添加
+  final String? initialContent;
+  final String? initialName;
+
+  const AddProfilePage({super.key, this.initialContent, this.initialName});
 
   @override
   State<AddProfilePage> createState() => _AddProfilePageState();
 }
 
 class _AddProfilePageState extends State<AddProfilePage> {
-  final TextEditingController _content = TextEditingController();
-  final TextEditingController _name = TextEditingController();
+  late final TextEditingController _content = TextEditingController(text: widget.initialContent);
+  late final TextEditingController _name = TextEditingController(text: widget.initialName);
   bool _adding = false;
   String? _error;
 

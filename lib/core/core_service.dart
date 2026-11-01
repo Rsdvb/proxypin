@@ -29,6 +29,7 @@ class CoreService {
     await manager.load();
     CoreManager.instance = manager;
 
+    if (manager.settings.autoConnect) unawaited(manager.connect());
     unawaited(manager.updateDueProfiles().catchError((e) => logger.w('profile update failed: $e')));
   }
 

@@ -29,7 +29,33 @@ class ConnectPage extends StatefulWidget {
 }
 
 class _ConnectPageState extends State<ConnectPage> {
-  late final Future<void> _ready = CoreService.start(widget.proxyServer);
+  late final Future<void> _ready = CoreService.start(widget.proxyServer).then((_) {
+    final pending = CoreManager.instance.pendingImport;
+    pending.addListener(_openPendingImport);
+    _openPendingImport();
+  });
+
+  @override
+  void initState() {
+    super.initState();
+    _ready.ignore();
+  }
+
+  @override
+  void dispose() {
+    if (CoreManager.isReady) CoreManager.instance.pendingImport.removeListener(_openPendingImport);
+    super.dispose();
+  }
+
+  void _openPendingImport() {
+    final pending = CoreManager.instance.pendingImport;
+    final link = pending.value;
+    if (link == null || !mounted) return;
+    pending.value = null;
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => AddProfilePage(initialContent: link.url, initialName: link.name),
+    ));
+  }
 
   @override
   Widget build(BuildContext context) {

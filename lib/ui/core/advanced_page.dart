@@ -1,5 +1,8 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:proxypin/core/core_manager.dart';
+import 'package:proxypin/core/windows_autostart.dart';
 
 /// 不常改的连接设置。默认值就能用，所以不放在首页
 class AdvancedPage extends StatefulWidget {
@@ -16,6 +19,19 @@ class _AdvancedPageState extends State<AdvancedPage> {
   late final TextEditingController _testUrl = TextEditingController(text: _manager.settings.testUrl);
   late bool _fakeIp = _manager.settings.fakeIp;
   late bool _ipv6 = _manager.settings.ipv6;
+  late bool _tun = _manager.settings.tun;
+  late bool _autoConnect = _manager.settings.autoConnect;
+  bool _autostart = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (Platform.isWindows) {
+      WindowsAutostart.isEnabled().then((value) {
+        if (mounted) setState(() => _autostart = value);
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -32,6 +48,8 @@ class _AdvancedPageState extends State<AdvancedPage> {
       testUrl: _testUrl.text.trim(),
       fakeIp: _fakeIp,
       ipv6: _ipv6,
+      tun: _tun,
+      autoConnect: _autoConnect,
     );
     if (mounted) Navigator.of(context).pop();
   }
@@ -57,6 +75,30 @@ class _AdvancedPageState extends State<AdvancedPage> {
         _field(_remoteDns, '远程 DNS', '走节点查询，如 https://1.1.1.1/dns-query'),
         _field(_directDns, '直连 DNS', '查询国内域名，local 表示系统 DNS，也可填 223.5.5.5'),
         _field(_testUrl, '延迟测试地址', '测节点延迟时访问的网址'),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('打开 App 时自动连接'),
+          value: _autoConnect,
+          onChanged: (value) => setState(() => _autoConnect = value),
+        ),
+        if (Platform.isWindows) ...[
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('开机自启'),
+            value: _autostart,
+            onChanged: (value) async {
+              await WindowsAutostart.setEnabled(value);
+              if (mounted) setState(() => _autostart = value);
+            },
+          ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('TUN 模式'),
+            subtitle: const Text('接管不走系统代理的程序，需要以管理员身份运行'),
+            value: _tun,
+            onChanged: (value) => setState(() => _tun = value),
+          ),
+        ],
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
           title: const Text('Fake IP'),

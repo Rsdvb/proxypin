@@ -29,6 +29,7 @@ class CoreBackup {
     'clashPort',
     'capture',
     'tun',
+    'systemProxyActive',
     'webDavUrl',
     'webDavUsername',
     'webDavPassword',

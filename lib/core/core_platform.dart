@@ -18,6 +18,12 @@ abstract class CorePlatform {
 
   Stream<CoreState> get states;
 
+  /// 网页上点“一键导入”打开的链接
+  Stream<String> get links;
+
+  /// 由链接拉起 App 时，这条链接比 Dart 先到
+  Future<String?> takePendingLink();
+
   /// 放 config.json 和规则集的目录，sing-box 要能读到
   Future<Directory> directory();
 
@@ -51,12 +57,20 @@ class IosCorePlatform implements CorePlatform {
   static const MethodChannel _channel = MethodChannel('rsproxy/core');
 
   final StreamController<CoreState> _states = StreamController.broadcast();
+  final StreamController<String> _links = StreamController.broadcast();
 
   IosCorePlatform() {
     _channel.setMethodCallHandler((call) async {
       if (call.method == 'stateChanged') _states.add(_parse(call.arguments));
+      if (call.method == 'openLink') _links.add(call.arguments as String);
     });
   }
+
+  @override
+  Stream<String> get links => _links.stream;
+
+  @override
+  Future<String?> takePendingLink() => _channel.invokeMethod<String>('takeLink');
 
   CoreState _parse(Object? state) => CoreState.values.asNameMap()[state] ?? CoreState.stopped;
 
@@ -111,14 +125,27 @@ class WindowsCorePlatform implements CorePlatform {
   final StreamController<CoreState> _states = StreamController.broadcast();
   final Queue<String> _log = Queue();
   final _KillOnExitJob _job = _KillOnExitJob();
+
+  /// 测试时指定，默认是 RsProxy.exe 旁边的 sing-box.exe 和应用数据目录
+  final String? executable;
+  final Directory? workingDirectory;
   Process? _process;
   bool _stopping = false;
+
+  WindowsCorePlatform({this.executable, this.workingDirectory});
 
   @override
   Stream<CoreState> get states => _states.stream;
 
   @override
+  Stream<String> get links => const Stream.empty();
+
+  @override
+  Future<String?> takePendingLink() async => null;
+
+  @override
   Future<Directory> directory() async {
+    if (workingDirectory != null) return workingDirectory!;
     final support = await getApplicationSupportDirectory();
     final directory = Directory('${support.path}${Platform.pathSeparator}core');
     await directory.create(recursive: true);
@@ -131,7 +158,8 @@ class WindowsCorePlatform implements CorePlatform {
   @override
   Future<bool> isRunning() async => _process != null;
 
-  String get _executable => '${File(Platform.resolvedExecutable).parent.path}${Platform.pathSeparator}sing-box.exe';
+  String get _executable =>
+      executable ?? '${File(Platform.resolvedExecutable).parent.path}${Platform.pathSeparator}sing-box.exe';
 
   @override
   Future<void> start() async {

@@ -2,6 +2,27 @@ import UIKit
 import Flutter
 import NetworkExtension
 
+/// 导入链接可能比 Flutter 先到，先存着，等 Dart 来取
+final class ImportLinks {
+    static let shared = ImportLinks()
+
+    var channel: FlutterMethodChannel?
+    private var pending: String?
+
+    func receive(_ link: String) {
+        if let channel {
+            channel.invokeMethod("openLink", arguments: link)
+        } else {
+            pending = link
+        }
+    }
+
+    func take() -> String? {
+        defer { pending = nil }
+        return pending
+    }
+}
+
 @main
 @objc class AppDelegate: FlutterAppDelegate {
 
@@ -32,6 +53,7 @@ import NetworkExtension
     /// Dart 侧的 IosCorePlatform 通过这个通道控制隧道
     private func registerCoreChannel(_ messenger: FlutterBinaryMessenger) {
         let channel = FlutterMethodChannel(name: "rsproxy/core", binaryMessenger: messenger)
+        ImportLinks.shared.channel = channel
         VpnManager.shared.onStateChange = { state in
             channel.invokeMethod("stateChanged", arguments: state)
         }
@@ -62,6 +84,8 @@ import NetworkExtension
                 }
             case "state":
                 result(VpnManager.shared.stateName)
+            case "takeLink":
+                result(ImportLinks.shared.take())
             case "start":
                 VpnManager.shared.start(finish)
             case "stop":
