@@ -51,7 +51,6 @@ class DomainList extends StatefulWidget {
   final NetworkTabController panel;
 
   final ListenableList<HttpRequest> list;
-  final bool shrinkWrap;
   final Function(List<HttpRequest>)? onRemove;
   final MultiSelectController selectionController;
   final RequestSelectionHandlers selectionHandlers;
@@ -60,7 +59,6 @@ class DomainList extends StatefulWidget {
       {super.key,
       required this.proxyServer,
       required this.list,
-      this.shrinkWrap = true,
       required this.panel,
       this.onRemove,
       required this.selectionController,
@@ -153,9 +151,7 @@ class DomainWidgetState extends State<DomainList> with AutomaticKeepAliveClientM
       searchView.clear();
     }
 
-    return widget.shrinkWrap
-        ? SingleChildScrollView(child: Column(children: list))
-        : ListView.builder(itemCount: list.length, itemBuilder: (_, index) => list[index]);
+    return CustomScrollView(slivers: list);
   }
 
   ///搜索
@@ -536,10 +532,11 @@ class _DomainRequestsState extends State<DomainRequests> {
 
   @override
   Widget build(BuildContext context) {
-    // 收起时不构建子行（Offstage 只是不绘制，仍会构建整棵子树——域名下几千个请求会全部常驻）
-    return Column(children: [
-      _hostWidget(widget.domain),
-      if (selected) Column(children: widget.body.toList())
+    // 子行按需构建：展开的域名下有几千个请求时，只构建可见的部分
+    final rows = selected ? widget.body.toList() : const <RequestWidget>[];
+    return SliverMainAxisGroup(slivers: [
+      SliverToBoxAdapter(child: _hostWidget(widget.domain)),
+      SliverList.builder(itemCount: rows.length, itemBuilder: (_, index) => rows[index]),
     ]);
   }
 
