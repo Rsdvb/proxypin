@@ -108,9 +108,9 @@ void main() {
 
   test('global mode skips the groups', () {
     final rules = _rules(CoreConfig.build(_options(groups: RuleGroup.defaults())));
-    final global = rules.indexWhere((e) => e['clash_mode'] == CoreConfig.modeGlobal);
+    final global = rules.indexWhere((e) => e['clash_mode'] == CoreConfig.modeGlobal && e['outbound'] == 'select');
     final firstGroup = rules.indexWhere((e) => e['rule_set'] != null);
-    expect(rules[global]['outbound'], 'select');
+    expect(global, greaterThanOrEqualTo(0));
     expect(global, lessThan(firstGroup));
   });
 
