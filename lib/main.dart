@@ -110,7 +110,7 @@ class FluentApp extends StatelessWidget {
             theme: AppTheme.build(Brightness.light, appConfiguration.themeColor),
             darkTheme: AppTheme.build(Brightness.dark, appConfiguration.themeColor),
             themeMode: appConfiguration.themeMode,
-            // 鏍稿績椤甸潰鍙湁涓枃锛岃窡鐫€绯荤粺璧颁細涓嫳娣锋潅
+            // 核心页面只有中文，跟着系统走会中英混杂
             locale: const Locale('zh'),
             localizationsDelegates: AppLocalizations.localizationsDelegates,
             supportedLocales: AppLocalizations.supportedLocales,

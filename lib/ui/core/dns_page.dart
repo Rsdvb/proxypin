@@ -7,6 +7,8 @@ import 'package:proxypin/core/dns_catalog.dart';
 import 'package:proxypin/core/dns_probe.dart';
 import 'package:proxypin/core/rule_group.dart';
 
+import 'design.dart';
+
 /// DNS 设置。直接改设置对象，离开页面时保存一次，运行中会重载内核
 class DnsPage extends StatefulWidget {
   const DnsPage({super.key});
@@ -114,7 +116,7 @@ class _DnsPageState extends State<DnsPage> {
     final hijack = _tun.hijackDns;
     return Scaffold(
       appBar: AppBar(title: const Text('DNS')),
-      body: ListView(children: [
+      body: SettingsList(children: [
         SwitchListTile(
           title: const Text('TUN HijackDNS'),
           subtitle: const Text('关闭后，来自 TUN 的 DNS 请求会被直接转发给对应的 DNS 服务器'),
@@ -502,7 +504,7 @@ class _StaticIpPageState extends State<StaticIpPage> {
         appBar: AppBar(title: const Text('静态 IP'), actions: [
           IconButton(tooltip: '添加', icon: const Icon(Icons.add), onPressed: _edit),
         ]),
-        body: ListView(children: [
+        body: SettingsList(children: [
           SwitchListTile(
             title: const Text('启用'),
             subtitle: const Text('需要开启 TUN HijackDNS 或解析入站域名'),

@@ -122,6 +122,8 @@ class VpnManager {
             manager.protocolConfiguration = configuration
             manager.localizedDescription = "RsProxy"
             manager.isEnabled = true
+            manager.onDemandRules = [NEOnDemandRuleConnect()]
+            manager.isOnDemandEnabled = options["alwaysOn"] as? Bool ?? false
 
             // 第一次保存时系统会弹窗请求添加 VPN，用户确认后才回调
             manager.saveToPreferences { error in
@@ -169,7 +171,16 @@ class VpnManager {
 
     func disconnect() {
         stopping = true
-        manager?.connection.stopVPNTunnel()
+        guard let manager else { return }
+        guard manager.isOnDemandEnabled else {
+            manager.connection.stopVPNTunnel()
+            return
+        }
+        // 按需连接还开着的话，系统马上又会把隧道拉起来。下次连接时再打开
+        manager.isOnDemandEnabled = false
+        manager.saveToPreferences { _ in
+            manager.connection.stopVPNTunnel()
+        }
     }
 
     func isRunning() -> Bool {

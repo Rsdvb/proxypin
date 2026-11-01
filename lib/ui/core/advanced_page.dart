@@ -9,6 +9,8 @@ import 'package:proxypin/core/single_instance.dart';
 import 'package:proxypin/core/windows_autostart.dart';
 import 'package:proxypin/ui/configuration.dart';
 
+import 'design.dart';
+
 /// 不常改的连接设置。默认值就能用，所以不放在首页
 class AdvancedPage extends StatefulWidget {
   const AdvancedPage({super.key});
@@ -96,7 +98,7 @@ class _AdvancedPageState extends State<AdvancedPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('高级设置')),
-      body: ListView(children: [
+      body: SettingsList(children: [
         ListTile(
           title: const Text('IPv6'),
           subtitle: const Text('节点没有 IPv6 时开启反而容易连不上'),
@@ -175,7 +177,7 @@ class _AdvancedPageState extends State<AdvancedPage> {
             controller: _testUrl,
             autocorrect: false,
             decoration: const InputDecoration(
-                labelText: '延迟测试地址', helperText: '测节点延迟时访问的网址', border: OutlineInputBorder()),
+                labelText: '延迟测试地址', helperText: '测节点延迟时访问的网址'),
           ),
         ),
       ]),
@@ -219,7 +221,7 @@ class _BypassDomainsPageState extends State<BypassDomainsPage> {
           child: const Text('恢复默认'),
         ),
       ]),
-      body: ListView(children: [
+      body: SettingsList(children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
           child: TextField(
@@ -228,7 +230,6 @@ class _BypassDomainsPageState extends State<BypassDomainsPage> {
             onSubmitted: (_) => _add(),
             decoration: InputDecoration(
               hintText: '*.example.com',
-              border: const OutlineInputBorder(),
               isDense: true,
               suffixIcon: IconButton(tooltip: '添加', icon: const Icon(Icons.add), onPressed: _add),
             ),

@@ -112,6 +112,17 @@ class _Api extends ClashApi {
     groupTests.add(group);
     return latency;
   }
+
+  /// 自动选择现在走的节点和内核记下的延迟
+  String? now;
+  Map<String, int> history = const {};
+  int groupReads = 0;
+
+  @override
+  Future<(Map<String, ProxyGroup>, Map<String, int>)> groupsAndDelays() async {
+    groupReads++;
+    return ({'auto': ProxyGroup('auto', 'URLTest', now, const [])}, history);
+  }
 }
 
 void main() {
@@ -148,6 +159,68 @@ void main() {
     } on FileSystemException {
       // ignored
     }
+  });
+
+  group('the node automatic selection is really using', () {
+    setUp(() async {
+      await manager.addProfile(_three);
+      await manager.connect();
+    });
+
+    test('comes from the core, with the delay the core measured', () async {
+      api
+        ..now = 'B'
+        ..history = {'B': 95};
+
+      await manager.refreshActiveNode();
+
+      expect(manager.activeNode, 'B');
+      expect(manager.delays['B'], 95);
+    });
+
+    test('is not asked for when a node was chosen by hand', () async {
+      api.now = 'B';
+      await manager.refreshActiveNode();
+      final reads = api.groupReads;
+
+      await manager.selectNode('A');
+      await manager.refreshActiveNode();
+
+      expect(api.groupReads, reads, reason: 'this request serialises every node');
+      expect(manager.activeNode, isNull);
+    });
+
+    test('is forgotten on disconnect', () async {
+      api.now = 'B';
+      await manager.refreshActiveNode();
+
+      await manager.disconnect();
+
+      expect(manager.activeNode, isNull);
+    });
+  });
+
+  test('the delay comes from the latest entry of the history the core keeps', () async {
+    HttpOverrides.global = null;
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => server.close(force: true));
+    server.listen((request) {
+      request.response
+        ..headers.contentType = ContentType.json
+        ..write(jsonEncode({
+          'proxies': {
+            'auto': {'type': 'URLTest', 'now': 'A', 'all': ['A', 'B'], 'history': []},
+            'A': {'type': 'Trojan', 'history': [{'delay': 300}, {'delay': 120}]},
+            'B': {'type': 'Trojan', 'history': [{'delay': 0}]},
+          },
+        }))
+        ..close();
+    });
+
+    final (groups, delays) = await ClashApi(port: server.port, secret: 's').groupsAndDelays();
+
+    expect(groups['auto']?.now, 'A');
+    expect(delays, {'A': 120}, reason: 'a zero means the test failed');
   });
 
   group('testing latency', () {

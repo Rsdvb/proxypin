@@ -55,7 +55,6 @@ class _DecryptDomainsPageState extends State<DecryptDomainsPage> {
             onSubmitted: (_) => _add(),
             decoration: InputDecoration(
               hintText: 'example.com 或 *.example.com',
-              border: const OutlineInputBorder(),
               isDense: true,
               suffixIcon: IconButton(tooltip: '添加', icon: const Icon(Icons.add), onPressed: _add),
             ),

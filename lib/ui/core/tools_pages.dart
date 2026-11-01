@@ -7,6 +7,7 @@ import 'package:proxypin/core/rule_group.dart';
 import 'package:proxypin/network/components/host_filter.dart';
 
 import 'connect_page.dart';
+import 'design.dart';
 import 'format.dart';
 
 /// 测当前节点的下载速度
@@ -128,13 +129,13 @@ class _RuleCheckPageState extends State<RuleCheckPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('规则检测')),
-      body: ListView(padding: const EdgeInsets.all(16), children: [
+      body: ContentColumn(children: [
         TextField(
           controller: _domain,
           autocorrect: false,
           keyboardType: TextInputType.url,
           onSubmitted: (_) => _check(),
-          decoration: const InputDecoration(hintText: '输入域名，如 www.google.com', border: OutlineInputBorder()),
+          decoration: const InputDecoration(hintText: '输入域名，如 www.google.com'),
         ),
         const SizedBox(height: 12),
         FilledButton(onPressed: _checking ? null : _check, child: Text(_checking ? '检测中' : '检测')),
@@ -167,13 +168,16 @@ class _NetworkCheckPageState extends State<NetworkCheckPage> {
 
   Future<void> _run() async {
     final manager = CoreManager.instance;
-    final proxy = manager.proxyAddress;
-    if (proxy == null) return;
     setState(() {
       _running = true;
       _results = null;
     });
-    final results = await CoreTools.networkCheck(manager.api, proxy, testUrl: manager.settings.testUrl);
+    // 连不上时正需要检测，所以这里自己连一次
+    if (manager.proxyAddress == null) await manager.connect();
+    final proxy = manager.proxyAddress;
+    final results = proxy == null
+        ? [CheckResult('内核', false, detail: manager.lastError ?? '没有连接成功')]
+        : await CoreTools.networkCheck(manager.api, proxy, testUrl: manager.settings.testUrl);
     if (mounted) {
       setState(() {
         _running = false;
@@ -191,13 +195,12 @@ class _NetworkCheckPageState extends State<NetworkCheckPage> {
       ]),
       body: results == null
           ? const Center(child: CircularProgressIndicator())
-          : ListView(children: [
+          : SettingsList(children: [
               for (final result in results)
                 ListTile(
-                  leading: Icon(result.passed ? Icons.check_circle : Icons.cancel,
-                      color: result.passed ? Colors.green : Theme.of(context).colorScheme.error),
+                  leading: Icon(result.passed ? Icons.check_circle : Icons.cancel, color: result.passed ? Tone.good : Tone.bad),
                   title: Text(result.name),
-                  subtitle: result.detail == null || result.detail!.isEmpty ? null : Text(result.detail!),
+                  subtitle: result.detail == null || result.detail!.isEmpty ? null : SelectableText(result.detail!),
                   trailing: result.elapsed == null ? null : Text('${result.elapsed!.inMilliseconds} ms'),
                 ),
             ]),

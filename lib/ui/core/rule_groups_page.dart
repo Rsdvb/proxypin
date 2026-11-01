@@ -317,6 +317,13 @@ class _RuleGroupsPageState extends State<RuleGroupsPage> {
     if (mounted) setState(() {});
   }
 
+  Future<void> _openRegion() async {
+    final region = await Navigator.of(context).push<String>(MaterialPageRoute(
+      builder: (_) => RegionPage(current: _manager.settings.region),
+    ));
+    if (region != null && mounted) _change(() => _manager.settings.region = region);
+  }
+
   @override
   Widget build(BuildContext context) {
     final settings = _manager.settings;
@@ -406,6 +413,13 @@ class _RuleGroupsPageState extends State<RuleGroupsPage> {
         ]),
         const SectionLabel('规则来源和出站'),
         Panel(children: [
+          InfoRow(
+            icon: Icons.flag_outlined,
+            iconColor: Tone.good,
+            title: '国家与地区',
+            subtitle: regionLabel(settings.region),
+            onTap: _openRegion,
+          ),
           InfoRow(icon: Icons.inventory_2_outlined, iconColor: accent, title: '规则集', onTap: _openRuleSets),
           InfoRow(icon: Icons.auto_awesome_outlined, iconColor: Tone.violet, title: '自动选择组', onTap: _openAutoSelect),
           InfoRow(

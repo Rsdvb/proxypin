@@ -6,6 +6,7 @@ import 'package:proxypin/core/profile.dart';
 import 'package:proxypin/core/rule_group.dart';
 
 import 'connect_page.dart';
+import 'design.dart';
 import 'format.dart';
 import 'node_edit_page.dart';
 import 'profile_options.dart';
@@ -345,13 +346,19 @@ class _NodesPageState extends State<NodesPage> {
     final enabled = _manager.nodes.map((e) => e['tag'].toString());
     final members = group?.membersIn(enabled) ?? const <String>[];
     final delays = members.map((e) => _manager.delays[e]).nonNulls.toList()..sort();
+    final actual = tag == selected ? _manager.activeNode : null;
+    final delay = actual == null ? delays.firstOrNull : _manager.delays[actual];
     return ListTile(
       dense: true,
       selected: tag == selected,
       title: Text(nodeLabel(tag), maxLines: 1, overflow: TextOverflow.ellipsis),
-      subtitle: group == null ? null : Text('${delays.length}/${members.length} 可用'),
+      subtitle: actual != null
+          ? Text('正在使用 $actual', maxLines: 1, overflow: TextOverflow.ellipsis)
+          : group == null
+              ? null
+              : Text('${delays.length}/${members.length} 可用'),
       trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-        if (delays.isNotEmpty) Text('${delays.first} ms', style: TextStyle(color: delayColor(context, delays.first))),
+        if (delay != null) Text('$delay ms', style: TextStyle(color: delayColor(context, delay))),
         if (tag == RuleTarget.auto)
           IconButton(
             tooltip: '说明',
@@ -398,9 +405,7 @@ class _NodesPageState extends State<NodesPage> {
     final profile = group.profile;
     final collapsed = _collapsed.contains(profile.id);
     final info = profile.info;
-    return Material(
-      color: theme.colorScheme.surfaceContainerLow,
-      child: InkWell(
+    return InkWell(
         onTap: () => setState(() => collapsed ? _collapsed.remove(profile.id) : _collapsed.add(profile.id)),
         child: Padding(
           padding: const EdgeInsets.only(left: 12, right: 4),
@@ -445,17 +450,32 @@ class _NodesPageState extends State<NodesPage> {
               ),
           ]),
         ),
-      ),
     );
   }
 
   Widget _title(_Title row) {
     return Padding(
-      padding: const EdgeInsets.only(left: 16, top: 4),
-      child: Row(children: [
-        Expanded(child: Text(row.text, style: Theme.of(context).textTheme.titleSmall)),
-        if (row.action != null) row.action!,
-      ]),
+      padding: const EdgeInsets.fromLTRB(16, 6, 12, 0),
+      child: SectionLabel(row.text, action: row.action),
+    );
+  }
+
+  /// 连续的行拼成一张卡片。节点可能上千个，只能一行一行画圆角
+  Widget _card(List<_Row> rows, int index, Widget child) {
+    final row = rows[index];
+    final startsCard = index == 0 || rows[index - 1] is _Title || row is _Group;
+    final endsCard = index == rows.length - 1 || rows[index + 1] is _Title || rows[index + 1] is _Group;
+    return Padding(
+      padding: EdgeInsets.fromLTRB(16, row is _Group ? AppTheme.gap : 0, 16, 0),
+      child: Material(
+        color: Palette.of(context).panel,
+        clipBehavior: Clip.antiAlias,
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(startsCard ? AppTheme.radius : 0),
+          bottom: Radius.circular(endsCard ? AppTheme.radius : 0),
+        ),
+        child: child,
+      ),
     );
   }
 
@@ -500,7 +520,11 @@ class _NodesPageState extends State<NodesPage> {
             ),
             IconButton(tooltip: '显示设置', icon: const Icon(Icons.tune), onPressed: _openSettings),
           ]),
-          body: Column(children: [
+          body: Align(
+            alignment: Alignment.topCenter,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: AppPage.contentWidth),
+              child: Column(children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
               child: TextField(
@@ -509,7 +533,6 @@ class _NodesPageState extends State<NodesPage> {
                   hintText: '搜索节点，支持正则',
                   prefixIcon: const Icon(Icons.search),
                   isDense: true,
-                  border: const OutlineInputBorder(),
                   suffixIcon: _keyword.isEmpty
                       ? IconButton(tooltip: '候选词', icon: const Icon(Icons.chevron_right), onPressed: _openKeywords)
                       : IconButton(
@@ -527,16 +550,19 @@ class _NodesPageState extends State<NodesPage> {
             _filters(),
             Expanded(
               child: ListView.builder(
+                padding: const EdgeInsets.only(bottom: 16),
                 itemCount: rows.length,
                 itemBuilder: (context, index) => switch (rows[index]) {
                   _Title row => _title(row),
-                  _Fixed row => _fixedTile(row.tag, selected),
-                  _Node row => _nodeTile(row, selected, byTag),
-                  _Group row => _groupHeader(row.group),
+                  _Fixed row => _card(rows, index, _fixedTile(row.tag, selected)),
+                  _Node row => _card(rows, index, _nodeTile(row, selected, byTag)),
+                  _Group row => _card(rows, index, _groupHeader(row.group)),
                 },
               ),
             ),
-          ]),
+              ]),
+            ),
+          ),
         );
       },
     );
@@ -614,7 +640,7 @@ class _SearchKeywordsPageState extends State<SearchKeywordsPage> {
       appBar: AppBar(title: const Text('搜索候选词'), actions: [
         IconButton(tooltip: '添加', icon: const Icon(Icons.add), onPressed: _add),
       ]),
-      body: ListView(children: [
+      body: SettingsList(children: [
         for (final word in _settings.searchKeywords)
           ListTile(
             title: Text(word),

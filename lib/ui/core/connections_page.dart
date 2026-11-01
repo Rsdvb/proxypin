@@ -372,7 +372,7 @@ class _ConnectionsPageState extends State<ConnectionsPage> {
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
           child: TextField(
             decoration: const InputDecoration(
-                hintText: '搜索域名', prefixIcon: Icon(Icons.search), isDense: true, border: OutlineInputBorder()),
+                hintText: '搜索域名', prefixIcon: Icon(Icons.search), isDense: true),
             onChanged: (value) => setState(() => _keyword = value.trim().toLowerCase()),
           ),
         ),
@@ -463,7 +463,6 @@ class _ConnectionFilterPageState extends State<ConnectionFilterPage> {
               hintText: '搜索',
               prefixIcon: const Icon(Icons.search),
               isDense: true,
-              border: const OutlineInputBorder(),
               suffixIcon: _keyword.isEmpty
                   ? null
                   : IconButton(

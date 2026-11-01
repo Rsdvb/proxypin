@@ -11,6 +11,7 @@ import 'package:proxypin/ui/component/qrcode/qr_scan_view.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import 'connect_page.dart';
+import 'design.dart';
 import 'format.dart';
 import 'node_edit_page.dart';
 import 'profile_options.dart';
@@ -318,7 +319,7 @@ class _AddProfilePageState extends State<AddProfilePage> {
         if (_rawContent != null)
           IconButton(tooltip: '查看下载到的内容', icon: const Icon(Icons.description_outlined), onPressed: _showRawContent),
       ]),
-      body: ListView(padding: const EdgeInsets.all(16), children: [
+      body: ContentColumn(children: [
         TextField(
           controller: _content,
           minLines: 5,
@@ -326,8 +327,7 @@ class _AddProfilePageState extends State<AddProfilePage> {
           onChanged: (_) => _fillName(),
           decoration: const InputDecoration(
               hintText: '粘贴订阅链接或配置内容\n支持 Clash、Stash、sing-box、V2Ray（可批量）、Shadowsocks、Sub 和 GitHub 配置链接',
-              hintMaxLines: 3,
-              border: OutlineInputBorder()),
+              hintMaxLines: 3),
         ),
         const SizedBox(height: 8),
         Wrap(spacing: 4, children: [
@@ -339,7 +339,7 @@ class _AddProfilePageState extends State<AddProfilePage> {
         const SizedBox(height: 8),
         TextField(
           controller: _name,
-          decoration: const InputDecoration(labelText: '名称（可不填）', border: OutlineInputBorder()),
+          decoration: const InputDecoration(labelText: '名称（可不填）'),
         ),
         if (_error != null)
           Padding(
@@ -415,12 +415,12 @@ class _MergeProfilesPageState extends State<MergeProfilesPage> {
       appBar: AppBar(title: const Text('合并配置'), actions: [
         IconButton(tooltip: '保存', icon: const Icon(Icons.check), onPressed: _selected.length < 2 ? null : _merge),
       ]),
-      body: ListView(children: [
+      body: SettingsList(children: [
         Padding(
           padding: const EdgeInsets.all(16),
           child: TextField(
             controller: _name,
-            decoration: const InputDecoration(labelText: '名称', border: OutlineInputBorder()),
+            decoration: const InputDecoration(labelText: '名称'),
           ),
         ),
         for (final profile in profiles)
@@ -475,12 +475,12 @@ class _EditProfilePageState extends State<EditProfilePage> {
       appBar: AppBar(title: const Text('编辑配置'), actions: [
         IconButton(tooltip: '保存', icon: const Icon(Icons.check), onPressed: _save),
       ]),
-      body: ListView(padding: const EdgeInsets.symmetric(vertical: 16), children: [
+      body: SettingsList(children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
           child: TextField(
             controller: _name,
-            decoration: const InputDecoration(labelText: '名称', border: OutlineInputBorder()),
+            decoration: const InputDecoration(labelText: '名称'),
           ),
         ),
         if (subscription)
@@ -490,7 +490,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
               controller: _url,
               keyboardType: TextInputType.url,
               autocorrect: false,
-              decoration: const InputDecoration(labelText: '订阅链接', border: OutlineInputBorder()),
+              decoration: const InputDecoration(labelText: '订阅链接'),
             ),
           ),
         ProfileOptionsForm(profile: _draft, subscription: subscription),

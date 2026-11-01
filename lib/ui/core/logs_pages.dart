@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:proxypin/core/clash_api.dart';
 import 'package:proxypin/core/core_manager.dart';
 
+import 'design.dart';
 import 'format.dart';
 
 /// 内核日志。只在这个页面开着时才订阅，平时不占内存
@@ -86,7 +87,7 @@ class _LogsPageState extends State<LogsPage> {
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
           child: TextField(
-            decoration: const InputDecoration(hintText: '搜索', prefixIcon: Icon(Icons.search), isDense: true, border: OutlineInputBorder()),
+            decoration: const InputDecoration(hintText: '搜索', prefixIcon: Icon(Icons.search), isDense: true),
             onChanged: (value) => setState(() => _keyword = value.trim()),
           ),
         ),
@@ -143,7 +144,7 @@ class _StatisticsPageState extends State<StatisticsPage> {
           },
         ),
       ]),
-      body: ListView(children: [
+      body: SettingsList(children: [
         SwitchListTile(
           title: const Text('启用统计'),
           subtitle: const Text('每分钟记一次总量，只记流量大小，不记访问了什么'),

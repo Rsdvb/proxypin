@@ -184,6 +184,9 @@ class TunSettings {
   /// iOS：同时设置 HTTP 代理，一些 App 绕过虚拟网卡时还能接住
   bool appendHttpProxy;
 
+  /// iOS：系统保持隧道常开，App 没运行时也会自动连接
+  bool alwaysOn;
+
   TunSettings({
     this.stack = 'gvisor',
     this.udpTimeoutSeconds = 300,
@@ -207,6 +210,7 @@ class TunSettings {
     this.excludeDeviceCommunication = false,
     this.enforceRoutes = false,
     this.appendHttpProxy = true,
+    this.alwaysOn = false,
   })  : routeExcludeTun = routeExcludeTun ?? Platform.isWindows,
         routeExcludeAddresses = routeExcludeAddresses ?? [];
 
@@ -233,6 +237,7 @@ class TunSettings {
         excludeDeviceCommunication: json['excludeDeviceCommunication'] ?? false,
         enforceRoutes: json['enforceRoutes'] ?? false,
         appendHttpProxy: json['appendHttpProxy'] ?? true,
+        alwaysOn: json['alwaysOn'] ?? false,
       );
 
   Map<String, dynamic> toJson() => {
@@ -258,6 +263,7 @@ class TunSettings {
         'excludeDeviceCommunication': excludeDeviceCommunication,
         'enforceRoutes': enforceRoutes,
         'appendHttpProxy': appendHttpProxy,
+        'alwaysOn': alwaysOn,
       };
 
   /// 0 和不合法的值用默认值
@@ -289,6 +295,7 @@ class TunSettings {
         'excludeApns': excludeApns,
         'excludeDeviceCommunication': excludeDeviceCommunication,
         'enforceRoutes': enforceRoutes,
+        'alwaysOn': alwaysOn,
       };
 }
 

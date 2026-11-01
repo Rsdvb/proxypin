@@ -5,6 +5,8 @@ import 'package:proxypin/core/core_manager.dart';
 import 'package:proxypin/core/profile.dart';
 import 'package:proxypin/core/subscription.dart';
 
+import 'design.dart';
+
 /// 配置的全部选项，添加和编辑共用。直接改 [profile]，由调用方决定什么时候保存
 class ProfileOptionsForm extends StatefulWidget {
   final Profile profile;
@@ -41,7 +43,7 @@ class _ProfileOptionsFormState extends State<ProfileOptionsForm> {
         initialValue: value,
         obscureText: obscure,
         autocorrect: false,
-        decoration: InputDecoration(labelText: label, hintText: hint, border: const OutlineInputBorder(), isDense: true),
+        decoration: InputDecoration(labelText: label, hintText: hint, isDense: true),
         onChanged: onChanged,
       ),
     );
@@ -168,7 +170,7 @@ class _IntervalDialogState extends State<_IntervalDialog> {
       child: TextField(
         controller: controller,
         keyboardType: TextInputType.number,
-        decoration: InputDecoration(labelText: label, border: const OutlineInputBorder(), isDense: true),
+        decoration: InputDecoration(labelText: label, isDense: true),
       ),
     );
   }
@@ -244,7 +246,7 @@ class _UserAgentPageState extends State<UserAgentPage> {
       appBar: AppBar(title: const Text('User-Agent'), actions: [
         IconButton(tooltip: '添加', icon: const Icon(Icons.add), onPressed: _add),
       ]),
-      body: ListView(children: [
+      body: SettingsList(children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
           child: Text('机场会根据 User-Agent 下发不同类型的订阅。实际发送：\n${profile.userAgent}',
@@ -291,7 +293,7 @@ class _NodeFilterPageState extends State<NodeFilterPage> {
     final profile = widget.profile;
     return Scaffold(
       appBar: AppBar(title: const Text('过滤')),
-      body: ListView(padding: const EdgeInsets.all(16), children: [
+      body: ContentColumn(children: [
         SegmentedButton<NodeFilterMethod>(
           segments: const [
             ButtonSegment(value: NodeFilterMethod.all, label: Text('全部')),
@@ -308,7 +310,7 @@ class _NodeFilterPageState extends State<NodeFilterPage> {
             initialValue: profile.filterPattern,
             autocorrect: false,
             decoration: const InputDecoration(
-                labelText: '关键词/正则', hintText: '香港|日本', helperText: '匹配节点名称', border: OutlineInputBorder()),
+                labelText: '关键词/正则', hintText: '香港|日本', helperText: '匹配节点名称'),
             onChanged: (value) => profile.filterPattern = value.trim(),
           ),
           SwitchListTile(

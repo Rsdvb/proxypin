@@ -4,6 +4,7 @@ import 'package:proxypin/core/core_manager.dart';
 import 'package:proxypin/core/profile.dart';
 import 'package:proxypin/core/rule_sets.dart';
 
+import 'design.dart';
 import 'format.dart';
 import 'profile_options.dart';
 
@@ -91,7 +92,7 @@ class _RuleSetsPageState extends State<RuleSetsPage> {
     final theme = Theme.of(context);
     return Scaffold(
       appBar: AppBar(title: const Text('规则集')),
-      body: ListView(children: [
+      body: SettingsList(children: [
         ListTile(
           title: const Text('地区'),
           subtitle: const Text('决定地区基础规则走哪里直连，设错可能导致分流错误'),

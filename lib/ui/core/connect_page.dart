@@ -14,7 +14,6 @@ import 'connections_page.dart';
 import 'design.dart';
 import 'format.dart';
 import 'home_stats.dart';
-import 'logs_pages.dart';
 import 'profile_options.dart';
 import 'profiles_page.dart';
 import 'tools_pages.dart';
@@ -181,11 +180,11 @@ class HomePage extends StatelessWidget {
     final running = manager.isRunning;
     return Panel(padding: const EdgeInsets.symmetric(vertical: 6), children: [
       Row(children: [
+        _Shortcut(Icons.add_circle_outline, '添加配置', () => _open(context, const AddProfilePage())),
         _Shortcut(Icons.lan_outlined, '连接',
             running ? () => _open(context, ConnectionsPage(configuration: configuration)) : null),
+        _Shortcut(Icons.health_and_safety_outlined, '网络检测', () => _open(context, const NetworkCheckPage())),
         _Shortcut(Icons.speed, '测速', running ? () => _open(context, const SpeedTestPage()) : null),
-        _Shortcut(Icons.rule, '规则检测', running ? () => _open(context, const RuleCheckPage()) : null),
-        _Shortcut(Icons.article_outlined, '日志', running ? () => _open(context, const LogsPage()) : null),
       ]),
     ]);
   }
@@ -235,7 +234,8 @@ class _ConnectionCard extends StatelessWidget {
     final ink = running ? Colors.white : palette.ink;
     final soft = running ? Colors.white.withValues(alpha: 0.78) : palette.muted;
     final selected = manager.selectedNode;
-    final delay = selected == null ? null : manager.delays[selected];
+    final actual = manager.activeNode;
+    final delay = manager.delays[actual ?? selected];
     final label = switch (state) {
       CoreState.stopped => '未连接',
       CoreState.starting => '正在连接',
@@ -281,9 +281,12 @@ class _ConnectionCard extends StatelessWidget {
                 const SizedBox(height: 4),
                 Text(
                   [
+                    if (actual != null) actual,
                     if (delay != null) '$delay ms',
-                    manager.activeProfile == null ? '没有配置时所有流量直连' : '${manager.nodes.length} 个节点',
+                    if (actual == null) manager.activeProfile == null ? '没有配置时所有流量直连' : '${manager.nodes.length} 个节点',
                   ].join(' · '),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(fontSize: 12.5, color: soft),
                 ),
               ]),
@@ -302,7 +305,7 @@ class _ConnectionCard extends StatelessWidget {
         if (manager.lastError != null)
           Padding(
             padding: const EdgeInsets.only(top: 10),
-            child: Text(manager.lastError!, style: TextStyle(color: running ? Colors.white : Tone.bad, fontSize: 12)),
+            child: SelectableText(manager.lastError!, style: TextStyle(color: running ? Colors.white : Tone.bad, fontSize: 12)),
           ),
       ]),
     );

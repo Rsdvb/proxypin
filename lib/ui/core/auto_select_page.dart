@@ -5,6 +5,7 @@ import 'package:proxypin/core/core_settings.dart';
 import 'package:proxypin/core/rule_group.dart';
 
 import 'connect_page.dart';
+import 'design.dart';
 import 'rule_groups_page.dart';
 
 /// 自动选择的参数和自定义组。返回改名记录（旧 tag -> 新 tag），分流组里引用它们的要一起改
@@ -158,7 +159,7 @@ class _AutoSelectPageState extends State<AutoSelectPage> {
         appBar: AppBar(title: const Text('自动选择'), actions: [
           IconButton(tooltip: '添加自动选择组', icon: const Icon(Icons.add), onPressed: _add),
         ]),
-        body: ListView(children: [
+        body: SettingsList(children: [
           ListTile(
             title: const Text('测试间隔'),
             trailing: Text('${settings.autoTestMinutes} 分钟'),
@@ -265,7 +266,6 @@ class _GroupMembersPageState extends State<GroupMembersPage> {
               labelText: '节点名包含，每行一个',
               hintText: '香港',
               helperText: '订阅更新后，新节点也会自动进这个组',
-              border: OutlineInputBorder(),
             ),
           ),
         ),
@@ -327,7 +327,7 @@ class _ChainProxyPageState extends State<ChainProxyPage> {
       appBar: AppBar(title: const Text('链式代理'), actions: [
         IconButton(tooltip: '添加节点', icon: const Icon(Icons.add), onPressed: _add),
       ]),
-      body: ListView(children: [
+      body: SettingsList(children: [
         SwitchListTile(
           title: const Text('放在当前节点前面'),
           subtitle: Text(settings.chainFront

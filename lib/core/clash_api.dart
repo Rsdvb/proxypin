@@ -156,9 +156,23 @@ class ClashApi {
   Future<String?> mode() async => ((await _json('GET', '/configs')) as Map?)?['mode']?.toString();
 
   /// 所有节点组，键是组名
-  Future<Map<String, ProxyGroup>> groups() async {
+  Future<Map<String, ProxyGroup>> groups() async => (await groupsAndDelays()).$1;
+
+  /// 节点组和内核记下的最近一次延迟。自动选择定时测的结果只有这里能看到
+  Future<(Map<String, ProxyGroup>, Map<String, int>)> groupsAndDelays() async {
     final json = (await _json('GET', '/proxies')) as Map<String, dynamic>;
     final proxies = (json['proxies'] as Map).cast<String, dynamic>();
+    final delays = <String, int>{};
+    for (final entry in proxies.entries) {
+      final history = entry.value['history'];
+      final last = history is List && history.isNotEmpty ? history.last : null;
+      final delay = last is Map ? last['delay'] : null;
+      if (delay is num && delay > 0) delays[entry.key] = delay.toInt();
+    }
+    return (_parseGroups(proxies), delays);
+  }
+
+  Map<String, ProxyGroup> _parseGroups(Map<String, dynamic> proxies) {
     return {
       for (final entry in proxies.entries)
         if (entry.value['all'] is List)

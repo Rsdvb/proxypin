@@ -7,6 +7,8 @@ import 'package:proxypin/core/core_settings.dart';
 import 'package:proxypin/core/core_tools.dart';
 import 'package:proxypin/core/windows_autostart.dart';
 
+import 'design.dart';
+
 /// 改完离开页面时保存一次：这些选项都要重载内核才生效，会断开现有连接
 mixin _SaveOnLeave<T extends StatefulWidget> on State<T> {
   final CoreManager manager = CoreManager.instance;
@@ -72,11 +74,6 @@ class NodeTuningPage extends StatefulWidget {
 class _NodeTuningPageState extends State<NodeTuningPage> with _SaveOnLeave {
   NodeTuning get _tuning => settings.tuning;
 
-  Widget _section(String title) => Padding(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-        child: Text(title, style: Theme.of(context).textTheme.titleSmall),
-      );
-
   Widget _number(String title, int value, void Function(int) apply, {String? subtitle, int low = 0, int high = 65535, bool enabled = true}) {
     return ListTile(
       enabled: enabled,
@@ -93,8 +90,8 @@ class _NodeTuningPageState extends State<NodeTuningPage> with _SaveOnLeave {
     final mux = tuning.muxEnabled;
     return Scaffold(
       appBar: AppBar(title: const Text('TLS 和多路复用')),
-      body: ListView(children: [
-        _section('TLS'),
+      body: SettingsList(children: [
+        const SectionLabel('TLS'),
         SwitchListTile(
           title: const Text('跳过证书验证'),
           subtitle: const Text('节点证书过期或自签时才打开。打开后无法发现中间人'),
@@ -115,8 +112,7 @@ class _NodeTuningPageState extends State<NodeTuningPage> with _SaveOnLeave {
         ),
         _number('分片等待（毫秒）', tuning.fragmentDelayMs, (e) => tuning.fragmentDelayMs = e,
             subtitle: '内核测不出等待时间时才用，留空用默认值', high: 1000, enabled: tuning.tlsFragment),
-        const Divider(height: 24),
-        _section('多路复用'),
+        const SectionLabel('多路复用'),
         SwitchListTile(
           title: const Text('启用'),
           subtitle: const Text('多条连接共用一条隧道，握手慢的节点会快一些。节点要支持才行'),
@@ -207,7 +203,7 @@ class _NetworkSharePageState extends State<NetworkSharePage> with _SaveOnLeave {
     final theme = Theme.of(context);
     return Scaffold(
       appBar: AppBar(title: const Text('网络共享')),
-      body: ListView(children: [
+      body: SettingsList(children: [
         SwitchListTile(
           title: const Text('允许局域网连接'),
           subtitle: const Text('其他设备把代理设成下面的地址，就能通过这台设备上网'),
@@ -305,7 +301,7 @@ class _PortsPageState extends State<PortsPage> with _SaveOnLeave {
     final settings = this.settings;
     return Scaffold(
       appBar: AppBar(title: const Text('端口')),
-      body: ListView(children: [
+      body: SettingsList(children: [
         _port('代理端口', settings.mixedPort, (e) => settings.mixedPort = e, subtitle: 'HTTP 和 SOCKS，按分流规则走'),
         _port('全部走代理的端口', settings.globalPort, (e) => settings.globalPort = e, subtitle: '留空不开启', optional: true),
         _port('全部直连的端口', settings.directPort, (e) => settings.directPort = e, subtitle: '留空不开启', optional: true),

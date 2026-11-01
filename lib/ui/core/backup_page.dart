@@ -280,19 +280,19 @@ class _BackupPageState extends State<BackupPage> {
             controller: _url,
             autocorrect: false,
             keyboardType: TextInputType.url,
-            decoration: const InputDecoration(labelText: '地址', hintText: 'https://dav.example.com/rsproxy', border: OutlineInputBorder()),
+            decoration: const InputDecoration(labelText: '地址', hintText: 'https://dav.example.com/rsproxy'),
           ),
           const SizedBox(height: 12),
           TextField(
             controller: _username,
             autocorrect: false,
-            decoration: const InputDecoration(labelText: '用户名', border: OutlineInputBorder()),
+            decoration: const InputDecoration(labelText: '用户名'),
           ),
           const SizedBox(height: 12),
           TextField(
             controller: _password,
             obscureText: true,
-            decoration: const InputDecoration(labelText: '密码', border: OutlineInputBorder()),
+            decoration: const InputDecoration(labelText: '密码'),
           ),
           const SizedBox(height: 4),
           ListTile(

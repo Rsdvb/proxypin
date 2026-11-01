@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:proxypin/core/core_tools.dart';
 import 'package:proxypin/core/rule_group.dart';
 
+import 'design.dart';
 import 'rule_sets_page.dart';
 
 /// 编辑页的结果
@@ -166,7 +167,7 @@ class _EditRuleGroupPageState extends State<EditRuleGroupPage> {
         minLines: 1,
         maxLines: 6,
         keyboardType: keyboard ?? TextInputType.multiline,
-        decoration: InputDecoration(labelText: label, hintText: hint, border: const OutlineInputBorder(), suffixIcon: suffix),
+        decoration: InputDecoration(labelText: label, hintText: hint, suffixIcon: suffix),
       ),
     );
   }
@@ -211,13 +212,13 @@ class _EditRuleGroupPageState extends State<EditRuleGroupPage> {
         if (_group != null) IconButton(tooltip: '删除', icon: const Icon(Icons.delete_outline), onPressed: _delete),
         IconButton(tooltip: '保存', icon: const Icon(Icons.check), onPressed: _save),
       ]),
-      body: ListView(padding: const EdgeInsets.all(16), children: [
+      body: ContentColumn(children: [
         Padding(
           padding: const EdgeInsets.only(bottom: 12),
           child: TextField(
             controller: _name,
             maxLength: 32,
-            decoration: const InputDecoration(labelText: '名称', border: OutlineInputBorder(), counterText: ''),
+            decoration: const InputDecoration(labelText: '名称', counterText: ''),
           ),
         ),
         SegmentedButton<bool>(

@@ -6,6 +6,8 @@ import 'package:proxypin/core/core_manager.dart';
 import 'package:proxypin/core/profile.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
+import 'design.dart';
+
 const JsonEncoder _pretty = JsonEncoder.withIndent('  ');
 
 /// 协议的显示名，认不出来的原样显示
@@ -143,10 +145,10 @@ class _NodeEditPageState extends State<NodeEditPage> {
       appBar: AppBar(title: const Text('编辑节点'), actions: [
         IconButton(tooltip: '保存', icon: const Icon(Icons.check), onPressed: _save),
       ]),
-      body: ListView(padding: const EdgeInsets.all(16), children: [
+      body: ContentColumn(children: [
         TextField(
           controller: _tag,
-          decoration: const InputDecoration(labelText: '名称', border: OutlineInputBorder()),
+          decoration: const InputDecoration(labelText: '名称'),
         ),
         const SizedBox(height: 12),
         Autocomplete<String>(
@@ -159,7 +161,6 @@ class _NodeEditPageState extends State<NodeEditPage> {
             decoration: const InputDecoration(
               labelText: '前置节点',
               helperText: '流量先经过它再到这个节点，留空表示没有',
-              border: OutlineInputBorder(),
             ),
           ),
         ),
@@ -170,7 +171,7 @@ class _NodeEditPageState extends State<NodeEditPage> {
           minLines: 10,
           maxLines: 24,
           style: const TextStyle(fontFamily: 'monospace', fontSize: 13),
-          decoration: InputDecoration(labelText: '其他参数', errorText: _error, errorMaxLines: 3, border: const OutlineInputBorder()),
+          decoration: InputDecoration(labelText: '其他参数', errorText: _error, errorMaxLines: 3),
         ),
       ]),
     );
@@ -248,7 +249,7 @@ class _AddNodePageState extends State<AddNodePage> {
       appBar: AppBar(title: const Text('添加节点'), actions: [
         IconButton(tooltip: '保存', icon: const Icon(Icons.check), onPressed: _save),
       ]),
-      body: ListView(padding: const EdgeInsets.all(16), children: [
+      body: ContentColumn(children: [
         Wrap(spacing: 8, children: [
           for (final name in _templates.keys) ActionChip(label: Text(name), onPressed: () => _useTemplate(name)),
         ]),
@@ -263,7 +264,6 @@ class _AddNodePageState extends State<AddNodePage> {
             labelText: '分享链接或节点 JSON',
             hintText: '选上面的协议从模板开始，或者直接粘贴',
             errorText: _error,
-            border: const OutlineInputBorder(),
           ),
         ),
       ]),

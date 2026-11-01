@@ -88,7 +88,7 @@ class SearchState extends State<Search> {
                   padding: EdgeInsets.zero,
                   constraints: const BoxConstraints(minWidth: 38, minHeight: 32),
                   onPressed: () => searchDialog()),
-              hintText: 'Search',
+              hintText: '搜索',
               hintStyle: TextStyle(fontSize: 14, color: theme.colorScheme.onSurfaceVariant),
               suffixIcon: ContentTypeSelect(onSelected: (contentType) {
                 setState(() {

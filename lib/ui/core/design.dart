@@ -73,7 +73,8 @@ abstract final class AppTheme {
       surfaceTint: Colors.transparent,
     );
 
-    final field = OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none);
+    // 用下划线类型，标签才会落在底色里面，而不是骑在边上
+    final field = UnderlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none);
     final base = ThemeData(useMaterial3: true, brightness: brightness, colorScheme: scheme, fontFamily: fontFamily);
     final text = base.textTheme.copyWith(
       headlineSmall: base.textTheme.headlineSmall?.copyWith(fontSize: 22, fontWeight: FontWeight.w700, color: palette.ink, height: 1.25),
@@ -244,7 +245,10 @@ class Panel extends StatelessWidget {
     final palette = Palette.of(context);
     final rows = <Widget>[];
     for (final child in children) {
-      if (rows.isNotEmpty) rows.add(Divider(height: 0.6, indent: 16, color: palette.line));
+      // 输入框自己有底色，再画分隔线就乱了
+      if (rows.isNotEmpty && child is! Padding && rows.last is! Padding) {
+        rows.add(Divider(height: 0.6, indent: 16, color: palette.line));
+      }
       rows.add(child);
     }
     return Material(
@@ -498,6 +502,38 @@ class AppPage extends StatelessWidget {
       appBar: AppBar(title: Text(title), actions: actions),
       body: ContentColumn(children: children),
     );
+  }
+}
+
+/// 设置类页面：连续的行放进同一张卡片，Divider 和 SectionLabel 把它们分开
+class SettingsList extends StatelessWidget {
+  final List<Widget> children;
+
+  const SettingsList({super.key, required this.children});
+
+  @override
+  Widget build(BuildContext context) {
+    final blocks = <Widget>[];
+    var rows = <Widget>[];
+    void close() {
+      if (rows.isEmpty) return;
+      blocks.add(Panel(children: rows));
+      rows = [];
+    }
+
+    for (final child in children) {
+      if (child is Divider) {
+        close();
+        blocks.add(const SizedBox(height: AppTheme.gap));
+      } else if (child is SectionLabel) {
+        close();
+        blocks.add(child);
+      } else {
+        rows.add(child);
+      }
+    }
+    close();
+    return ContentColumn(children: [const SizedBox(height: 4), ...blocks]);
   }
 }
 

@@ -81,7 +81,7 @@ class MobileSearchState extends State<MobileSearch> {
                 prefixIcon: InkWell(
                     onTap: showSearch,
                     child: Icon(Icons.search, color: _searched ? Colors.green : Theme.of(context).colorScheme.primary)),
-                hintText: 'Search')));
+                hintText: '搜索')));
   }
 
   void showSearch() {

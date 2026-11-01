@@ -7,6 +7,7 @@ import 'package:proxypin/core/rule_group.dart';
 import 'package:proxypin/core/windows_autostart.dart';
 
 import 'advanced_page.dart';
+import 'design.dart';
 
 /// TUN 设置。iOS 始终走 TUN，所以没有总开关
 class TunPage extends StatefulWidget {
@@ -63,7 +64,7 @@ class _TunPageState extends State<TunPage> {
         enabled: _enabled,
         autocorrect: false,
         keyboardType: keyboard,
-        decoration: InputDecoration(labelText: label, hintText: hint, border: const OutlineInputBorder(), isDense: true),
+        decoration: InputDecoration(labelText: label, hintText: hint, isDense: true),
         onChanged: onChanged,
       ),
     );
@@ -88,7 +89,7 @@ class _TunPageState extends State<TunPage> {
     final tun = _tun;
     return Scaffold(
       appBar: AppBar(title: const Text('TUN')),
-      body: ListView(children: [
+      body: SettingsList(children: [
         if (Platform.isWindows)
           SwitchListTile(
             title: const Text('TUN 模式'),
@@ -154,6 +155,8 @@ class _TunPageState extends State<TunPage> {
         ),
         if (Platform.isIOS) ...[
           const Divider(height: 1),
+          _switch('始终开启连接', tun.alwaysOn, (value) => tun.alwaysOn = value,
+              tip: '系统在有网络时自动连接，App 没打开也一样。在 App 里断开后停止，下次连接时恢复'),
           _switch('附加 HTTP 代理到 VPN', tun.appendHttpProxy, (value) => tun.appendHttpProxy = value,
               tip: '一些 App 会绕过虚拟网卡直连 HTTP 代理'),
           _switch('允许绕过 HTTP 代理', _settings.proxyBypass, (value) => _settings.proxyBypass = value,
@@ -223,7 +226,7 @@ class _RouteExcludePageState extends State<RouteExcludePage> {
     final on = _tun.routeExclude;
     return Scaffold(
       appBar: AppBar(title: const Text('排除地址段')),
-      body: ListView(children: [
+      body: SettingsList(children: [
         SwitchListTile(
           title: const Text('启用'),
           subtitle: Text('${_tun.ipv4Address}\n${_tun.ipv6Address}'),
@@ -260,7 +263,6 @@ class _RouteExcludePageState extends State<RouteExcludePage> {
             onSubmitted: (_) => _add(),
             decoration: InputDecoration(
               hintText: '224.0.0.0/4',
-              border: const OutlineInputBorder(),
               isDense: true,
               suffixIcon: IconButton(tooltip: '添加', icon: const Icon(Icons.add), onPressed: on ? _add : null),
             ),

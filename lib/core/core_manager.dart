@@ -433,8 +433,14 @@ class CoreManager extends ChangeNotifier {
 
   static const Duration _trafficInterval = Duration(minutes: 1);
 
+  static const Duration _activeNodeInterval = Duration(seconds: 5);
+
   Timer? _healthTimer;
   Timer? _trafficTimer;
+  Timer? _activeNodeTimer;
+
+  /// 选的是自动选择或自定义组时，它现在实际走的节点
+  String? activeNode;
 
   /// 流量统计和健康检查。iOS 上 App 挂起时定时器不走，回到前台再补上：内核的累计值一直在
   void _startTimers() {
@@ -446,6 +452,7 @@ class CoreManager extends ChangeNotifier {
     if (seconds > 0) {
       _healthTimer = Timer.periodic(Duration(seconds: seconds), (_) => unawaited(_checkHealth()));
     }
+    _activeNodeTimer = Timer.periodic(_activeNodeInterval, (_) => unawaited(refreshActiveNode()));
   }
 
   void _stopTimers() {
@@ -453,6 +460,33 @@ class CoreManager extends ChangeNotifier {
     _healthTimer = null;
     _trafficTimer?.cancel();
     _trafficTimer = null;
+    _activeNodeTimer?.cancel();
+    _activeNodeTimer = null;
+    activeNode = null;
+  }
+
+  /// 问内核自动选择现在走哪个节点。只有选了自动选择才问，这个请求要序列化全部节点
+  Future<void> refreshActiveNode() async {
+    final selected = selectedNode ?? RuleTarget.auto;
+    final automatic = selected == RuleTarget.auto || selected.startsWith(RuleTarget.groupPrefix);
+    if (!isRunning || !automatic) {
+      if (activeNode != null) {
+        activeNode = null;
+        notifyListeners();
+      }
+      return;
+    }
+    try {
+      final (groups, history) = await api.groupsAndDelays();
+      final now = groups[selected]?.now;
+      final delay = now == null ? null : history[now];
+      if (now == activeNode && (delay == null || delay == delays[now])) return;
+      activeNode = now;
+      if (delay != null) delays[now!] = delay;
+      notifyListeners();
+    } on Exception catch (e) {
+      logger.d('active node failed: $e');
+    }
   }
 
   /// 自动选择平时隔很久才测一次，正在用的节点坏了要等到下一轮。这里只查它一个，坏了才重测全部
