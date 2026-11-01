@@ -57,6 +57,20 @@ jobs:
           cache: true
       - run: flutter pub get
       - run: bash tool/fetch_rule_sets.sh assets/rules
+      - name: Restore Libbox
+        id: libbox
+        uses: actions/cache@v4
+        with:
+          path: ios/Libbox/Libbox.xcframework
+          key: libbox-${{ env.SING_BOX_VERSION }}-${{ hashFiles('tool/build_libbox.sh') }}
+      - uses: actions/setup-go@v5
+        if: steps.libbox.outputs.cache-hit != 'true'
+        with:
+          go-version: '1.25'
+          cache: false
+      - name: Build Libbox
+        if: steps.libbox.outputs.cache-hit != 'true'
+        run: bash tool/build_libbox.sh "$SING_BOX_VERSION" ios/Libbox
       - name: Build without signing
         run: flutter build ios --release --no-codesign
       - name: Package unsigned IPA
@@ -88,6 +102,13 @@ jobs:
         shell: bash
       - name: Build
         run: flutter build windows --release
+      - name: Add sing-box
+        shell: bash
+        run: |
+          name="sing-box-$SING_BOX_VERSION-windows-amd64"
+          curl -fsSL --retry 3 -o sing-box.zip "https://github.com/SagerNet/sing-box/releases/download/v$SING_BOX_VERSION/$name.zip"
+          unzip -q sing-box.zip
+          cp "$name/sing-box.exe" build/windows/x64/runner/Release/
       - uses: actions/upload-artifact@v4
         with:
           name: RsProxy-windows-x64

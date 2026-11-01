@@ -10,197 +10,145 @@ enum VPNStatus {
     case disconnecting
 }
 
-
-class VpnManager{
-    var activeVPN: NETunnelProviderManager?;
-    
-    public var proxyHost: String = "127.0.0.1"
-    public var proxyPort: Int = 9099
-    public var ipProxy: Bool = false
-    public var proxyPassDomains: [String]?
-    public var proxyDomains: [String]?
+/// 隧道的开关。sing-box 跑在隧道进程里，主 App 退出后继续工作
+class VpnManager {
+    private static let appGroup = "group.io.github.rsdvb.rsproxy"
+    private static let tunnelBundleId = "io.github.rsdvb.rsproxy.tunnel"
 
     static let shared = VpnManager()
-    var observerAdded: Bool = false
 
+    private var manager: NETunnelProviderManager?
+
+    /// 状态变化时回调，取值和 Dart 的 CoreState 同名
+    var onStateChange: ((String) -> Void)?
 
     fileprivate(set) var vpnStatus = VPNStatus.off {
         didSet {
             NotificationCenter.default.post(name: Notification.Name(rawValue: kProxyServiceVPNStatusNotification), object: nil)
+            onStateChange?(stateName)
+        }
+    }
+
+    var stateName: String {
+        switch vpnStatus {
+        case .off: return "stopped"
+        case .connecting: return "starting"
+        case .on: return "running"
+        case .disconnecting: return "stopping"
         }
     }
 
     init() {
-        loadProviderManager{
-            guard let manager = $0 else{return}
-            self.updateVPNStatus(manager)
+        NotificationCenter.default.addObserver(forName: .NEVPNStatusDidChange, object: nil, queue: .main) { [weak self] notification in
+            if let connection = notification.object as? NEVPNConnection {
+                self?.update(connection.status)
+            }
         }
-        addVPNStatusObserver()
+        NETunnelProviderManager.loadAllFromPreferences { [weak self] managers, _ in
+            guard let manager = managers?.first else { return }
+            DispatchQueue.main.async {
+                self?.manager = manager
+                self?.update(manager.connection.status)
+            }
+        }
     }
 
     deinit {
         NotificationCenter.default.removeObserver(self)
     }
 
-    func addVPNStatusObserver() {
-        guard !observerAdded else{
-            return
-        }
-        loadProviderManager { [unowned self] (manager) -> Void in
-            if let manager = manager {
-                self.observerAdded = true
-                NotificationCenter.default.addObserver(forName: NSNotification.Name.NEVPNStatusDidChange, object: manager.connection, queue: OperationQueue.main, using: { [unowned self] (notification) -> Void in
-                    
-                    self.updateVPNStatus(manager)
-                    
-                    if (manager.connection.status == .invalid || manager.connection.status == .disconnected){
-                       
-                        print("VPN断开: \(String(describing: manager.debugDescription))")
-                    }
-                })
-            }
-        }
-    }
-
-
-    func updateVPNStatus(_ manager: NEVPNManager) {
-        switch manager.connection.status {
+    private func update(_ status: NEVPNStatus) {
+        switch status {
         case .connected:
-            self.vpnStatus = .on
+            vpnStatus = .on
         case .connecting, .reasserting:
-            self.vpnStatus = .connecting
+            vpnStatus = .connecting
         case .disconnecting:
-            self.vpnStatus = .disconnecting
+            vpnStatus = .disconnecting
         case .disconnected, .invalid:
-            self.vpnStatus = .off
-        @unknown default: break
-
+            vpnStatus = .off
+        @unknown default:
+            break
         }
     }
-}
 
-// load VPN Profiles
-extension VpnManager{
-
-    fileprivate func createProviderManager() -> NETunnelProviderManager {
-        let manager = NETunnelProviderManager()
-        let conf = NETunnelProviderProtocol()
-        conf.serverAddress = "RsProxy"
-        manager.protocolConfiguration = conf
-        manager.localizedDescription = "RsProxy"
-        return manager
+    /// App Group 共享目录，隧道从这里读配置
+    static func sharedDirectory(_ path: String) throws -> URL {
+        guard let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroup) else {
+            throw NSError(domain: "VpnManager", code: 1, userInfo: [NSLocalizedDescriptionKey: "missing app group container"])
+        }
+        let url = container.appendingPathComponent(path, isDirectory: true)
+        try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
     }
 
-    func loadAndCreatePrividerManager(_ complete: @escaping (NETunnelProviderManager?) -> Void ){
-        NETunnelProviderManager.loadAllFromPreferences{ [self] (managers, error) in
-            guard let managers = managers else{return}
-            let manager: NETunnelProviderManager
-            if managers.count > 0 {
-                manager = managers[0]
-            }else{
-                manager = self.createProviderManager()
+    func start(_ completion: @escaping (Error?) -> Void) {
+        NETunnelProviderManager.loadAllFromPreferences { [weak self] managers, error in
+            if let error {
+                completion(error)
+                return
             }
-   
-            var conf = [String:AnyObject]()
-            conf["proxyHost"] = self.proxyHost as AnyObject
-            conf["proxyPort"] = self.proxyPort as AnyObject
-            conf["ipProxy"] = self.ipProxy as AnyObject
-            // Bridge Swift [String] to NSArray (Objective-C) before inserting into AnyObject dictionary
-            if let passDomains = self.proxyPassDomains {
-                conf["proxyPassDomains"] = passDomains as NSArray
-            }
-            if let proxyDomains = self.proxyDomains {
-                conf["proxyDomains"] = proxyDomains as NSArray
-            }
-
-            let orignConf = manager.protocolConfiguration as! NETunnelProviderProtocol
- 
-            orignConf.providerConfiguration = conf
-            manager.protocolConfiguration = orignConf
-            
-            print(orignConf)
+            let manager = managers?.first ?? NETunnelProviderManager()
+            let configuration = (manager.protocolConfiguration as? NETunnelProviderProtocol) ?? NETunnelProviderProtocol()
+            configuration.providerBundleIdentifier = Self.tunnelBundleId
+            configuration.serverAddress = "RsProxy"
+            manager.protocolConfiguration = configuration
+            manager.localizedDescription = "RsProxy"
             manager.isEnabled = true
-            manager.saveToPreferences{
-                if ($0 != nil){
-//                    complete(nil);
-//                    return;
-                }
-                manager.loadFromPreferences{
-                    if $0 != nil{
-                        print("loadFromPreferences",$0.debugDescription)
-                        complete(nil);return;
-                    }
-                    self.addVPNStatusObserver()
-                    complete(manager)
-                }
-            }
 
-        }
-    }
-
-    func loadProviderManager(_ complete: @escaping (NETunnelProviderManager?) -> Void){
-        NETunnelProviderManager.loadAllFromPreferences { (managers, error) in
-            if let managers = managers {
-                if managers.count > 0 {
-                    let manager = managers[0]
-                    complete(manager)
+            // 第一次保存时系统会弹窗请求添加 VPN，用户确认后才回调
+            manager.saveToPreferences { error in
+                if let error {
+                    completion(error)
                     return
                 }
-            }
-            complete(nil)
-        }
-    }
-
-}
-
-// Actions
-extension VpnManager{
-    
-    func connect(host: String?, port: Int?, ipProxy: Bool? = false, proxyPassDomains: [String]? = nil, proxyDomains: [String]? = nil) {
-        self.proxyHost = host ?? self.proxyHost
-        self.proxyPort = port ?? self.proxyPort
-        self.ipProxy = ipProxy ?? false
-        self.proxyPassDomains = proxyPassDomains ?? self.proxyPassDomains
-        self.proxyDomains = proxyDomains ?? self.proxyDomains
-
-        self.loadAndCreatePrividerManager { (manager) in
-            guard let manager = manager else{return}
-            do{
-                self.activeVPN = manager
-                try manager.connection.startVPNTunnel()
-            }catch let err{
-                print("connect: ", err)
+                manager.loadFromPreferences { error in
+                    if let error {
+                        completion(error)
+                        return
+                    }
+                    do {
+                        self?.manager = manager
+                        try manager.connection.startVPNTunnel()
+                        completion(nil)
+                    } catch {
+                        completion(error)
+                    }
+                }
             }
         }
     }
-    
-    func restartConnect(host: String?, port: Int?, ipProxy: Bool? = false, proxyPassDomains: [String]? = nil, proxyDomains: [String]? = nil) {
-        self.proxyHost = host ?? self.proxyHost
-        self.proxyPort = port ?? self.proxyPort
-        self.ipProxy = ipProxy ?? false
 
-        if (activeVPN != nil) {
-            activeVPN?.connection.stopVPNTunnel()
-            activeVPN = nil
-        }
-        
-        self.connect(host: host, port: port, ipProxy: ipProxy, proxyPassDomains: proxyPassDomains, proxyDomains: proxyDomains)
+    func connect(host _: String?, port _: Int?, ipProxy _: Bool?) {
+        start { _ in }
     }
 
     func disconnect() {
-        if (activeVPN != nil) {
-            activeVPN?.connection.stopVPNTunnel()
-            activeVPN = nil
-            return
-        }
-        
-        loadProviderManager{
-            $0?.connection.stopVPNTunnel()
-        }
-    }
-    
-    func isRunning() -> Bool {
-        return vpnStatus == VPNStatus.on
+        manager?.connection.stopVPNTunnel()
     }
 
+    func isRunning() -> Bool {
+        return vpnStatus == .on
+    }
+
+    /// 给隧道进程发消息，隧道返回的文本视为错误
+    func send(_ message: [String: Any], completion: @escaping (Error?) -> Void) {
+        guard let session = manager?.connection as? NETunnelProviderSession, isRunning() else {
+            completion(nil)
+            return
+        }
+        do {
+            let data = try JSONSerialization.data(withJSONObject: message)
+            try session.sendProviderMessage(data) { response in
+                if let response, !response.isEmpty {
+                    let text = String(decoding: response, as: UTF8.self)
+                    completion(NSError(domain: "VpnManager", code: 2, userInfo: [NSLocalizedDescriptionKey: text]))
+                } else {
+                    completion(nil)
+                }
+            }
+        } catch {
+            completion(error)
+        }
+    }
 }

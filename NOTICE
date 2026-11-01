@@ -8,5 +8,17 @@ Copyright 2023 Hongen Wang
 https://github.com/wanghongenpin/proxypin
 Licensed under the Apache License, Version 2.0 (see LICENSE).
 
-RsProxy 与 ProxyPin 及其作者没有关联。
-RsProxy is not affiliated with or endorsed by ProxyPin or its author.
+sing-box
+Copyright (C) 2022 by nekohasekai
+https://github.com/SagerNet/sing-box
+Licensed under the GNU General Public License v3.0 or later. RsProxy bundles
+sing-box, and ios/ProxyPin/TunnelPlatform.swift is adapted from
+sing-box-for-apple, so distributed builds of RsProxy as a whole are covered by
+the GPL. Corresponding source is available at
+https://github.com/Rsdvb/proxypin and the addresses above.
+
+Rule sets come from sing-geosite and sing-geoip, built from
+domain-list-community and related lists.
+
+RsProxy 与 ProxyPin、sing-box 及其作者没有关联。
+RsProxy is not affiliated with or endorsed by ProxyPin, sing-box or their authors.

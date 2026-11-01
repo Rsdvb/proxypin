@@ -34,6 +34,7 @@ import 'package:proxypin/network/http/websocket.dart';
 import 'package:proxypin/network/http/http_client.dart';
 import 'package:proxypin/mcp/mcp_service.dart';
 import 'package:proxypin/storage/histories.dart';
+import 'package:proxypin/ui/core/connect_page.dart';
 import 'package:proxypin/ui/component/memory_cleanup.dart';
 import 'package:proxypin/ui/component/multi_select_controller.dart';
 import 'package:proxypin/ui/component/svg_icon.dart';
@@ -194,7 +195,7 @@ class MobileHomeState extends State<MobileHomePage>
   void toRequestsView(HistoryItem item, HistoryStorage storage) {}
 
   void _openHistoryPage(HistoryItem item) {
-    _selectIndex.value = 0;
+    _selectIndex.value = 1;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) {
         return;
@@ -211,6 +212,7 @@ class MobileHomeState extends State<MobileHomePage>
 
   int exitTime = 0;
 
+  var connectNavigatorKey = GlobalKey<NavigatorState>();
   var requestPageNavigatorKey = GlobalKey<NavigatorState>();
   var configNavigatorKey = GlobalKey<NavigatorState>();
   var toolboxNavigatorKey = GlobalKey<NavigatorState>();
@@ -219,6 +221,7 @@ class MobileHomeState extends State<MobileHomePage>
   @override
   Widget build(BuildContext context) {
     var navigationView = [
+      NavigatorPage(navigatorKey: connectNavigatorKey, child: ConnectPage(proxyServer: proxyServer)),
       NavigatorPage(
           navigatorKey: requestPageNavigatorKey,
           child: RequestPage(proxyServer: proxyServer, appConfiguration: widget.appConfiguration)),
@@ -237,8 +240,6 @@ class MobileHomeState extends State<MobileHomePage>
           navigatorKey: settingNavigatorKey,
           child: SettingPage(proxyServer: proxyServer, appConfiguration: widget.appConfiguration)),
     ];
-
-    if (!widget.appConfiguration.bottomNavigation) _selectIndex.value = 0;
 
     return PopScope(
         canPop: false,
@@ -273,39 +274,38 @@ class MobileHomeState extends State<MobileHomePage>
               return Scaffold(
                   body: IndexedStack(index: index, children: navigationView),
                   // 实心底导航（放弃毛玻璃：真机上模糊效果不明显，且 extendBody 会引入一系列页尾遮挡问题）
-                  bottomNavigationBar: widget.appConfiguration.bottomNavigation
-                      ? Container(
-                          decoration: BoxDecoration(
-                              color: theme.colorScheme.surface,
-                              border: Border(
-                                  top: BorderSide(color: theme.dividerColor.withValues(alpha: 0.6), width: 0.5))),
-                          child: SafeArea(
-                              top: false,
-                              child: Theme(
-                                data: theme.copyWith(splashColor: Colors.transparent),
-                                child: BottomNavigationBar(
-                                  type: BottomNavigationBarType.fixed,
-                                  backgroundColor: Colors.transparent,
-                                  iconSize: 20,
-                                  // 设计稿 .p-bn：图标 19 + 9px 文字标签
-                                  showSelectedLabels: true,
-                                  showUnselectedLabels: true,
-                                  selectedFontSize: 10,
-                                  unselectedFontSize: 10,
-                                  elevation: 0,
-                                  items: [
-                                    // 设计稿线条 SVG 图标：list / wrench / sliders / gear（工具箱第 2、配置第 3）
-                                    // 与桌面 rail 首项同款标签（设计稿底导航「请求」）
-                                    _navItem(context, 'list', localizations.navRequests, index == 0),
-                                    _navItem(context, 'wrench', localizations.toolbox, index == 1),
-                                    _navItem(context, 'sliders', localizations.config, index == 2),
-                                    _navItem(context, 'gear', localizations.setting, index == 3),
-                                  ],
-                                  currentIndex: _selectIndex.value,
-                                  onTap: (index) => _selectIndex.value = index,
-                                ),
-                              )))
-                      : null);
+                  bottomNavigationBar: Container(
+                      decoration: BoxDecoration(
+                          color: theme.colorScheme.surface,
+                          border:
+                              Border(top: BorderSide(color: theme.dividerColor.withValues(alpha: 0.6), width: 0.5))),
+                      child: SafeArea(
+                          top: false,
+                          child: Theme(
+                            data: theme.copyWith(splashColor: Colors.transparent),
+                            child: BottomNavigationBar(
+                              type: BottomNavigationBarType.fixed,
+                              backgroundColor: Colors.transparent,
+                              iconSize: 20,
+                              // 设计稿 .p-bn：图标 19 + 9px 文字标签
+                              showSelectedLabels: true,
+                              showUnselectedLabels: true,
+                              selectedFontSize: 10,
+                              unselectedFontSize: 10,
+                              elevation: 0,
+                              items: [
+                                _navItem(context, 'power', '连接', index == 0),
+                                // 设计稿线条 SVG 图标：list / wrench / sliders / gear（工具箱第 2、配置第 3）
+                                // 与桌面 rail 首项同款标签（设计稿底导航「请求」）
+                                _navItem(context, 'list', localizations.navRequests, index == 1),
+                                _navItem(context, 'wrench', localizations.toolbox, index == 2),
+                                _navItem(context, 'sliders', localizations.config, index == 3),
+                                _navItem(context, 'gear', localizations.setting, index == 4),
+                              ],
+                              currentIndex: _selectIndex.value,
+                              onTap: (index) => _selectIndex.value = index,
+                            ),
+                          ))));
             }));
   }
 

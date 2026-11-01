@@ -29,6 +29,7 @@ import 'package:proxypin/network/channel/channel_context.dart';
 import 'package:proxypin/network/http/http.dart';
 import 'package:proxypin/network/http/websocket.dart';
 import 'package:proxypin/storage/histories.dart';
+import 'package:proxypin/ui/core/connect_page.dart';
 import 'package:proxypin/ui/component/memory_cleanup.dart';
 import 'package:proxypin/ui/component/utils.dart';
 import 'package:proxypin/ui/component/widgets.dart';
@@ -67,6 +68,9 @@ class _DesktopHomePagePageState extends State<DesktopHomePage> implements EventL
 
   static final GlobalKey<DesktopRequestListState> requestListStateKey = GlobalKey<DesktopRequestListState>();
 
+  /// 左侧导航：0 是连接页，之后是抓包相关的页面
+  static const int _requestsIndex = 1;
+
   final ValueNotifier<int> _selectIndex = ValueNotifier(0);
   StreamSubscription<HistoryItem>? _remoteHistorySubscription;
 
@@ -80,7 +84,7 @@ class _DesktopHomePagePageState extends State<DesktopHomePage> implements EventL
     requestListStateKey.currentState!.add(channel, request);
 
     if (request.attributes['quickShare'] == true) {
-      _selectIndex.value = 0;
+      _selectIndex.value = _requestsIndex;
       panel.change(request, request.response);
     }
 
@@ -120,7 +124,7 @@ class _DesktopHomePagePageState extends State<DesktopHomePage> implements EventL
     panel = NetworkTabController(tabStyle: const TextStyle(fontSize: 12.5), proxyServer: proxyServer);
     _remoteHistorySubscription = HistoryStorage.onRemoteImported.listen((_) {
       if (mounted) {
-        _selectIndex.value = 2;
+        _selectIndex.value = _requestsIndex + 2;
       }
     });
 
@@ -138,6 +142,11 @@ class _DesktopHomePagePageState extends State<DesktopHomePage> implements EventL
     _remoteHistorySubscription?.cancel();
     super.dispose();
   }
+
+  // 嵌套 Navigator：二级页面留在导航栏右侧，而不是盖住整个窗口
+  late final Widget _connectPage = Navigator(
+    onGenerateRoute: (_) => MaterialPageRoute(builder: (_) => ConnectPage(proxyServer: proxyServer)),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -172,6 +181,9 @@ class _DesktopHomePagePageState extends State<DesktopHomePage> implements EventL
             LeftNavigationBar(
                 selectIndex: _selectIndex, appConfiguration: widget.appConfiguration, proxyServer: proxyServer),
             Expanded(
+                child: ValueListenableBuilder(
+              valueListenable: _selectIndex,
+              // 连接页占满宽度；抓包页面只是隐藏，请求列表的状态和收到的数据都要留着
               child: VerticalSplitView(
                   ratio: widget.appConfiguration.panelRatio,
                   minRatio: 0.15,
@@ -184,10 +196,14 @@ class _DesktopHomePagePageState extends State<DesktopHomePage> implements EventL
                   },
                   left: ValueListenableBuilder(
                       valueListenable: _selectIndex,
-                      builder: (_, index, __) =>
-                          LazyIndexedStack(index: index < 0 ? 0 : index, children: navigationView)),
+                      builder: (_, index, __) => LazyIndexedStack(
+                          index: index < _requestsIndex ? 0 : index - _requestsIndex, children: navigationView)),
                   right: panel),
-            )
+              builder: (_, index, splitView) => Stack(fit: StackFit.expand, children: [
+                Offstage(offstage: index == 0, child: splitView),
+                Offstage(offstage: index != 0, child: _connectPage),
+              ]),
+            ))
           ],
         ));
   }

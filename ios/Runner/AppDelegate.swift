@@ -7,26 +7,15 @@ import NetworkExtension
 
     var backgroundAudioEnable: Bool = true
 
+    /// 解密时主 App 要留在后台。不解密时隧道自己工作，主 App 不需要保活，也就不耗电
+    var keepAlive: Bool = false
+
     override func application(_ application: UIApplication,
                               didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         GeneratedPluginRegistrant.register(with: self)
 
         let controller: FlutterViewController = window?.rootViewController as! FlutterViewController
-        let vpnChannel = FlutterMethodChannel.init(name: "com.proxy/proxyVpn", binaryMessenger: controller as! FlutterBinaryMessenger);
-            vpnChannel.setMethodCallHandler({(call: FlutterMethodCall, result: FlutterResult) -> Void in
-                if ("stopVpn" == call.method) {
-                    VpnManager.shared.disconnect()
-                } else if ("isRunning" == call.method){
-                    result(Bool(VpnManager.shared.isRunning()))
-                } else if ("restartVpn" == call.method){
-                    let arguments = call.arguments as? Dictionary<String, AnyObject>
-//                     VpnManager.shared.disconnect()
-                    VpnManager.shared.restartConnect(host: arguments?["proxyHost"] as? String ,port: arguments?["proxyPort"] as? Int, ipProxy: arguments?["ipProxy"] as? Bool, proxyPassDomains: arguments?["proxyPassDomains"] as? [String], proxyDomains: arguments?["proxyDomains"] as? [String])
-                } else {
-                    let arguments = call.arguments as? Dictionary<String, AnyObject>
-                    VpnManager.shared.connect(host: arguments?["proxyHost"] as? String ,port: arguments?["proxyPort"] as? Int, ipProxy: arguments?["ipProxy"] as? Bool, proxyPassDomains: arguments?["proxyPassDomains"] as? [String], proxyDomains: arguments?["proxyDomains"] as? [String])
-              }
-          })
+        self.registerCoreChannel(controller as! FlutterBinaryMessenger)
 
         if #available(iOS 13.0.0, *) {
             PictureInPictureManager.regirst(flutter: controller as! FlutterBinaryMessenger)
@@ -40,15 +29,66 @@ import NetworkExtension
         return super.application(application, didFinishLaunchingWithOptions: launchOptions)
    }
 
-    override func applicationWillTerminate(_ application: UIApplication) {
-        VpnManager.shared.disconnect()
+    /// Dart 侧的 IosCorePlatform 通过这个通道控制隧道
+    private func registerCoreChannel(_ messenger: FlutterBinaryMessenger) {
+        let channel = FlutterMethodChannel(name: "rsproxy/core", binaryMessenger: messenger)
+        VpnManager.shared.onStateChange = { state in
+            channel.invokeMethod("stateChanged", arguments: state)
+        }
+
+        channel.setMethodCallHandler { [weak self] call, result in
+            let finish: (Error?) -> Void = { error in
+                DispatchQueue.main.async {
+                    if let error {
+                        result(FlutterError(code: "core", message: error.localizedDescription, details: nil))
+                    } else {
+                        result(nil)
+                    }
+                }
+            }
+
+            switch call.method {
+            case "coreDirectory":
+                do {
+                    result(try VpnManager.sharedDirectory("core").path)
+                } catch {
+                    finish(error)
+                }
+            case "cachePath":
+                do {
+                    result(try VpnManager.sharedDirectory("Library/Caches/Working").appendingPathComponent("cache.db").path)
+                } catch {
+                    finish(error)
+                }
+            case "state":
+                result(VpnManager.shared.stateName)
+            case "start":
+                VpnManager.shared.start(finish)
+            case "stop":
+                VpnManager.shared.disconnect()
+                result(nil)
+            case "reload":
+                VpnManager.shared.send(["action": "reload"], completion: finish)
+            case "watchCapture":
+                var message = call.arguments as? [String: Any] ?? [:]
+                message["action"] = "watchCapture"
+                VpnManager.shared.send(message, completion: finish)
+            case "unwatchCapture":
+                VpnManager.shared.send(["action": "unwatchCapture"], completion: finish)
+            case "setKeepAlive":
+                self?.keepAlive = call.arguments as? Bool ?? false
+                result(nil)
+            default:
+                result(FlutterMethodNotImplemented)
+            }
+        }
     }
 
     var timer: Timer?
     var bgTask: UIBackgroundTaskIdentifier = .invalid
 
     override func applicationDidEnterBackground(_ application: UIApplication) {
-        if (!VpnManager.shared.isRunning()) {
+        if (!self.keepAlive) {
             return
         }
 
@@ -79,7 +119,7 @@ import NetworkExtension
 
         self.endBgTask(application)
 
-        if (UIApplication.shared.backgroundTimeRemaining < 60 && VpnManager.shared.isRunning()) {
+        if (UIApplication.shared.backgroundTimeRemaining < 60 && self.keepAlive) {
             self.beginBgTask(application)
         }
 
@@ -105,7 +145,7 @@ import NetworkExtension
     }
     
     private func backgroundAudio() {
-        if (!VpnManager.shared.isRunning() || !self.backgroundAudioEnable) {
+        if (!self.keepAlive || !self.backgroundAudioEnable) {
             return
         }
         if (AudioManager.shared.openBackgroundAudioAutoplay) {
@@ -131,7 +171,7 @@ import NetworkExtension
     func endBackgroundUpdateTask() {
         self.endAudioStartTask()
 
-        // VPN 已停止时也要关：否则之后每次进后台都会继续播放无声音频
+        // 解密已关闭时也要关：否则之后每次进后台都会继续播放无声音频
         if (AudioManager.shared.openBackgroundAudioAutoplay) {
             AudioManager.shared.openBackgroundAudioAutoplay = false
         }

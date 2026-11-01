@@ -20,6 +20,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_toastr/flutter_toastr.dart';
 import 'package:proxypin/l10n/app_localizations.dart';
+import 'package:proxypin/core/core_manager.dart';
 import 'package:proxypin/native/vpn.dart';
 import 'package:proxypin/network/bin/server.dart';
 import 'package:proxypin/network/util/logger.dart';
@@ -192,6 +193,10 @@ class _SocketLaunchState extends State<SocketLaunch> with WindowListener, Widget
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      if (CoreManager.isReady) {
+        CoreManager.instance.onResumed().catchError((e) => logger.w('resume core failed: $e'));
+      }
+
       if (widget.proxyServer.isRunning && started) {
         widget.proxyServer.retryBind().catchError((e) {
           logger.e('retryBind failed on resumed', error: e);

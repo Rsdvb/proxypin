@@ -51,6 +51,7 @@ class _LeftNavigationBarState extends State<LeftNavigationBar> {
           }
 
           var items = [
+            (icon: 'power', label: '连接'),
             (icon: 'list', label: localizations.navRequests),
             (icon: 'star', label: localizations.favorites),
             (icon: 'clock', label: localizations.history),
