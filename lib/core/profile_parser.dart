@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:yaml/yaml.dart';
 
 import 'clash_proxy.dart';
+import 'clash_routing.dart';
 import 'share_link.dart';
 
 /// 解析结果
@@ -12,7 +13,10 @@ class ParsedProfile {
   /// 暂不支持而跳过的节点数
   final int skipped;
 
-  const ParsedProfile(this.outbounds, this.skipped);
+  /// 机场的分流规则，只有 Clash 格式才有
+  final ProviderRouting? routing;
+
+  const ParsedProfile(this.outbounds, this.skipped, {this.routing});
 }
 
 /// 配置内容解析，自动识别格式：sing-box、Clash、分享链接，以及 base64 后的分享链接
@@ -58,7 +62,7 @@ class ProfileParser {
     if (json is! Map) throw const FormatException('not an object');
 
     if (json['proxies'] is List) {
-      return _clashProxies(json['proxies'] as List);
+      return _clashProxies(json);
     }
 
     final items = json['outbounds'];
@@ -87,10 +91,11 @@ class ProfileParser {
     if (document is! Map || document['proxies'] is! List) {
       throw const FormatException('no proxies');
     }
-    return _clashProxies(document['proxies'] as List);
+    return _clashProxies(document);
   }
 
-  static ParsedProfile _clashProxies(List proxies) {
+  static ParsedProfile _clashProxies(Map document) {
+    final proxies = document['proxies'] as List;
     final outbounds = <Outbound>[];
     var skipped = 0;
     for (final proxy in proxies) {
@@ -101,7 +106,7 @@ class ProfileParser {
         outbounds.add(outbound);
       }
     }
-    return ParsedProfile(_uniqueTags(outbounds), skipped);
+    return ParsedProfile(_uniqueTags(outbounds), skipped, routing: ProviderRouting.parse(document));
   }
 
   static ParsedProfile _links(List<String> lines) {

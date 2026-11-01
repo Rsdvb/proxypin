@@ -53,7 +53,7 @@ class _ConnectPageState extends State<ConnectPage> {
     if (link == null || !mounted) return;
     pending.value = null;
     Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => AddProfilePage(initialContent: link.url, initialName: link.name),
+      builder: (_) => AddProfilePage(initialContent: link.url, initialName: link.name, outboundDns: link.outboundDns),
     ));
   }
 
@@ -99,6 +99,17 @@ class _ConnectView extends StatelessWidget {
         child: ListView(padding: const EdgeInsets.fromLTRB(16, 20, 16, 16), children: [
           _PowerButton(manager),
           const SizedBox(height: 24),
+          if (manager.needsReload) ...[
+            _Section(children: [
+              ListTile(
+                leading: const Icon(Icons.refresh),
+                title: const Text('配置已更新'),
+                subtitle: const Text('重新加载后生效，现有连接会断开'),
+                onTap: manager.reloadConfig,
+              ),
+            ]),
+            const SizedBox(height: 12),
+          ],
           _Section(children: [
             _nodeTile(context),
           ]),
@@ -286,7 +297,7 @@ class _PowerButton extends StatelessWidget {
   }
 }
 
-/// 实时速度。只有这个控件在屏幕上时才订阅，后台不产生任何请求
+/// 实时速度。App 进后台时断开订阅：iOS 上这条连接一直占着内核的内存，也让解密时的主 App 多醒
 class _TrafficLine extends StatefulWidget {
   final ClashApi api;
 
@@ -296,21 +307,37 @@ class _TrafficLine extends StatefulWidget {
   State<_TrafficLine> createState() => _TrafficLineState();
 }
 
-class _TrafficLineState extends State<_TrafficLine> {
+class _TrafficLineState extends State<_TrafficLine> with WidgetsBindingObserver {
   StreamSubscription<TrafficSample>? _subscription;
   TrafficSample _sample = const TrafficSample(0, 0);
 
   @override
   void initState() {
     super.initState();
-    _subscription = widget.api.traffic().listen((sample) {
+    WidgetsBinding.instance.addObserver(this);
+    _subscribe();
+  }
+
+  void _subscribe() {
+    _subscription ??= widget.api.traffic().listen((sample) {
       if (mounted) setState(() => _sample = sample);
     }, onError: (_) {});
   }
 
+  void _unsubscribe() {
+    _subscription?.cancel();
+    _subscription = null;
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    state == AppLifecycleState.resumed ? _subscribe() : _unsubscribe();
+  }
+
   @override
   void dispose() {
-    _subscription?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    _unsubscribe();
     super.dispose();
   }
 

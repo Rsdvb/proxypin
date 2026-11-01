@@ -15,11 +15,20 @@ class CoreSettings {
 
   /// 收藏的节点名。按名称存，订阅更新后仍然有效
   Set<String> favorites;
+
+  /// 用户自己加的 User-Agent，所有配置都能选
+  List<String> userAgents;
+
+  /// X-HWID 发送的设备标识，安装时随机生成
+  String deviceId;
   String webDavUrl;
   String webDavUsername;
   String webDavPassword;
   RouteMode mode;
   bool capture;
+
+  /// 总开关：是否使用机场的分流规则，配置里选了保留才有
+  bool providerRulesEnabled;
 
   /// Windows：是否走 TUN（需要管理员权限）。iOS 始终走 TUN
   bool tun;
@@ -47,11 +56,14 @@ class CoreSettings {
     this.activeProfileId,
     Map<String, String>? selectedNodes,
     Set<String>? favorites,
+    List<String>? userAgents,
+    String? deviceId,
     this.webDavUrl = '',
     this.webDavUsername = '',
     this.webDavPassword = '',
     this.mode = RouteMode.rule,
     this.capture = false,
+    this.providerRulesEnabled = true,
     this.tun = false,
     this.systemProxy = true,
     this.systemProxyActive = false,
@@ -68,8 +80,15 @@ class CoreSettings {
     String? clashSecret,
   })  : selectedNodes = selectedNodes ?? {},
         favorites = favorites ?? {},
+        userAgents = userAgents ?? [],
+        deviceId = deviceId ?? _randomDeviceId(),
         groups = groups ?? RuleGroup.defaults(),
         clashSecret = clashSecret ?? _randomSecret();
+
+  static String _randomDeviceId() {
+    final random = Random.secure();
+    return List.generate(16, (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0')).join();
+  }
 
   /// 接口只监听本机，但同一台设备上的其他程序也能访问，所以每次安装生成一个
   static String _randomSecret() {
@@ -81,11 +100,14 @@ class CoreSettings {
         activeProfileId: json['activeProfileId'],
         selectedNodes: (json['selectedNodes'] as Map?)?.cast<String, String>(),
         favorites: (json['favorites'] as List?)?.map((e) => e.toString()).toSet(),
+        userAgents: (json['userAgents'] as List?)?.map((e) => e.toString()).toList(),
+        deviceId: json['deviceId'],
         webDavUrl: json['webDavUrl'] ?? '',
         webDavUsername: json['webDavUsername'] ?? '',
         webDavPassword: json['webDavPassword'] ?? '',
         mode: RouteMode.values.asNameMap()[json['mode']] ?? RouteMode.rule,
         capture: json['capture'] ?? false,
+        providerRulesEnabled: json['providerRulesEnabled'] ?? true,
         tun: json['tun'] ?? false,
         systemProxy: json['systemProxy'] ?? true,
         systemProxyActive: json['systemProxyActive'] ?? false,
@@ -106,11 +128,14 @@ class CoreSettings {
         'activeProfileId': activeProfileId,
         'selectedNodes': selectedNodes,
         'favorites': favorites.toList(),
+        'userAgents': userAgents,
+        'deviceId': deviceId,
         'webDavUrl': webDavUrl,
         'webDavUsername': webDavUsername,
         'webDavPassword': webDavPassword,
         'mode': mode.name,
         'capture': capture,
+        'providerRulesEnabled': providerRulesEnabled,
         'tun': tun,
         'systemProxy': systemProxy,
         'systemProxyActive': systemProxyActive,

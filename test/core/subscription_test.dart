@@ -50,8 +50,10 @@ void main() {
     Profile profile({String? include, String? exclude}) => Profile(
           id: '1',
           name: 'p',
-          include: include,
-          exclude: exclude,
+          filterMethod: include != null
+              ? NodeFilterMethod.include
+              : (exclude != null ? NodeFilterMethod.exclude : NodeFilterMethod.all),
+          filterPattern: include ?? exclude ?? '',
           nodes: [
             {'tag': '香港 01'},
             {'tag': 'Japan 02'},
@@ -64,7 +66,7 @@ void main() {
       expect(profile(include: 'japan').activeNodes.map((e) => e['tag']), ['Japan 02']);
     });
 
-    test('a broken filter keeps every node rather than dropping them', () {
+    test('a broken filter drops nothing it does not literally match', () {
       expect(profile(exclude: '(').activeNodes, hasLength(3));
     });
 
@@ -72,13 +74,15 @@ void main() {
       final now = DateTime(2026, 11, 1, 12);
       final item = Profile(id: '1', name: 'p', url: 'https://example.com', updatedAt: now);
       expect(item.isDue(now.add(const Duration(hours: 11))), isFalse);
+      expect(Profile(id: '1', name: 'p', url: 'https://example.com', updatedAt: now, updateMinutes: 5)
+          .isDue(now.add(const Duration(minutes: 5))), isTrue);
       expect(item.isDue(now.add(const Duration(hours: 12))), isTrue);
     });
 
-    test('pasted configs and an interval of zero never update themselves', () {
+    test('pasted configs and a switched-off interval never update themselves', () {
       final now = DateTime(2026, 11, 1);
       expect(Profile(id: '1', name: 'p').isDue(now), isFalse);
-      expect(Profile(id: '1', name: 'p', url: 'https://example.com', updateHours: 0).isDue(now), isFalse);
+      expect(Profile(id: '1', name: 'p', url: 'https://example.com', updateMinutes: null).isDue(now), isFalse);
       expect(Profile(id: '1', name: 'p', url: 'https://example.com').isDue(now), isTrue, reason: 'never fetched');
     });
 
@@ -110,7 +114,6 @@ void main() {
           response.headers
             ..set('subscription-userinfo', 'upload=1; download=2; total=3')
             ..set('profile-title', 'base64:${base64.encode(utf8.encode('标题'))}')
-            ..set('profile-update-interval', '6')
             ..set('profile-web-page-url', 'https://panel.example');
           response.write(base64.encode(utf8.encode('trojan://p@a.example:443#A')));
         }
@@ -122,11 +125,10 @@ void main() {
 
     test('reads the body and headers', () async {
       final result = await Subscription.fetch('http://127.0.0.1:${server.port}/sub');
-      expect(seenAgent, Profile.defaultUserAgent);
+      expect(seenAgent, UserAgents.compose(true, UserAgents.presets));
       expect(result.parsed.outbounds.single['tag'], 'A');
       expect(result.info!.total, 3);
       expect(result.title, '标题');
-      expect(result.updateHours, 6);
       expect(result.website, 'https://panel.example');
     });
 

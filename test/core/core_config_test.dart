@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:proxypin/core/clash_routing.dart';
 import 'package:proxypin/core/core_config.dart';
 import 'package:proxypin/core/rule_group.dart';
 
@@ -200,6 +201,33 @@ void main() {
       'desktop': _options(nodes: nodes, groups: RuleGroup.defaults()),
       'tun': _options(nodes: nodes, groups: RuleGroup.defaults(), tun: true, mixedPort: 0),
       'empty': _options(nodes: const [], groups: const [], mitmDomains: null),
+      'provider': CoreOptions(
+        nodes: nodes,
+        groups: const [],
+        mixedPort: 7890,
+        upstreamPort: 7891,
+        mitmPort: 9099,
+        clashPort: 9191,
+        clashSecret: 'secret',
+        ruleSetDirectory: 'rules',
+        cachePath: 'cache.db',
+        outboundDns: '1.1.1.1',
+        providerRuleSets: const {'geoip-cn'},
+        providerRouting: ProviderRouting.parse({
+          'proxy-groups': [
+            {'name': 'Proxy', 'type': 'select', 'proxies': ['Auto', 'HK', 'DIRECT']},
+            {'name': 'Auto', 'type': 'url-test', 'proxies': ['HK', 'JP']},
+          ],
+          'rules': [
+            'DOMAIN-SUFFIX,a.example,Proxy',
+            'DOMAIN-KEYWORD,b,DIRECT',
+            'IP-CIDR,10.1.0.0/16,DIRECT,no-resolve',
+            'GEOIP,CN,DIRECT',
+            'DOMAIN,ads.example,REJECT',
+            'MATCH,Proxy',
+          ],
+        }),
+      ),
     };
     samples.forEach((name, options) {
       File('$directory/$name.json').writeAsStringSync(jsonEncode(CoreConfig.build(options)));

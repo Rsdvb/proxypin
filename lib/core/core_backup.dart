@@ -24,6 +24,7 @@ class CoreBackup {
   /// 这台设备自己的东西。WebDAV 密码也不进备份：备份文件就存在那个网盘上
   static const Set<String> _deviceFields = {
     'clashSecret',
+    'deviceId',
     'mixedPort',
     'upstreamPort',
     'clashPort',

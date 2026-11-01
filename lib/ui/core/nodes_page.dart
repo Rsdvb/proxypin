@@ -29,6 +29,7 @@ class _NodesPageState extends State<NodesPage> {
       builder: (context, _) {
         final tags = _visibleTags(manager);
         final selected = manager.selectedNode ?? 'auto';
+        final types = {for (final node in manager.nodes) node['tag']: node['type']?.toString()};
         return Scaffold(
           appBar: AppBar(title: const Text('节点'), actions: [
             IconButton(
@@ -65,7 +66,7 @@ class _NodesPageState extends State<NodesPage> {
                     selected: tag == selected,
                     leading: Icon(tag == selected ? Icons.radio_button_checked : Icons.radio_button_off, size: 20),
                     title: Text(nodeLabel(tag), maxLines: 1, overflow: TextOverflow.ellipsis),
-                    subtitle: _typeOf(manager, tag) == null ? null : Text(_typeOf(manager, tag)!),
+                    subtitle: types[tag] == null ? null : Text(types[tag]!),
                     trailing: Row(mainAxisSize: MainAxisSize.min, children: [
                       if (delay != null) Text('$delay ms', style: TextStyle(color: delayColor(context, delay))),
                       if (tag != 'auto' && tag != 'direct')
@@ -128,12 +129,5 @@ class _NodesPageState extends State<NodesPage> {
       matching.sort((a, b) => delayOf(a).compareTo(delayOf(b)));
     }
     return [if (_keyword.isEmpty && _filter == null) ...[if (nodes.length > 1) 'auto', 'direct'], ...matching];
-  }
-
-  String? _typeOf(CoreManager manager, String tag) {
-    for (final node in manager.nodes) {
-      if (node['tag'] == tag) return node['type']?.toString();
-    }
-    return null;
   }
 }

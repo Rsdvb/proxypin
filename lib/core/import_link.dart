@@ -5,7 +5,10 @@ class ImportLink {
   final String url;
   final String? name;
 
-  const ImportLink(this.url, {this.name});
+  /// 链接参数 outbound-dns，机场指定用来解析节点域名的 DNS
+  final List<String> outboundDns;
+
+  const ImportLink(this.url, {this.name, this.outboundDns = const []});
 
   /// clash://install-config?url=...&name=...，sing-box 把名称放在 # 后面。不认识的链接返回 null
   static ImportLink? parse(String link) {
@@ -17,7 +20,8 @@ class ImportLink {
         final url = uri.queryParameters['url'];
         if (url == null || !_isHttp(url)) return null;
         final name = uri.queryParameters['name'] ?? (uri.fragment.isEmpty ? null : Uri.decodeComponent(uri.fragment));
-        return ImportLink(url, name: name);
+        final dns = uri.queryParameters['outbound-dns'];
+        return ImportLink(url, name: name, outboundDns: dns == null || dns.isEmpty ? const [] : dns.split(','));
       case 'shadowrocket':
         return _shadowrocket(uri);
       case 'sub':

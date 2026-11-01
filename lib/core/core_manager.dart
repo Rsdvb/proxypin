@@ -11,6 +11,7 @@ import 'core_backup.dart';
 import 'core_config.dart';
 import 'core_platform.dart';
 import 'core_settings.dart';
+import 'device_identity.dart';
 import 'import_link.dart';
 import 'profile.dart';
 import 'profile_parser.dart';
@@ -33,6 +34,16 @@ abstract class MitmHost {
   Future<void> attach(int upstreamPort);
 
   Future<void> detach();
+}
+
+/// 添加的配置已经有了
+class DuplicateProfileException implements Exception {
+  final String message;
+
+  const DuplicateProfileException(this.message);
+
+  @override
+  String toString() => message;
 }
 
 /// 连接的总控：配置、模式、节点和内核的启停都从这里走
@@ -71,6 +82,9 @@ class CoreManager extends ChangeNotifier {
   /// 延迟测试进行中
   bool testing = false;
 
+  /// 配置已更新，但内核还在用旧的，重新加载或下次连接后生效
+  bool needsReload = false;
+
   /// 等用户确认的一键导入。不直接添加：链接可能来自任何网页
   final ValueNotifier<ImportLink?> pendingImport = ValueNotifier(null);
   StreamSubscription<CoreState>? _states;
@@ -100,10 +114,13 @@ class CoreManager extends ChangeNotifier {
     return null;
   }
 
+  /// 节点列表每个控件都会读，过滤和合并都要分配内存，所以算一次留着，配置变了才重算
+  List<Map<String, dynamic>>? _nodes;
+
   List<Map<String, dynamic>> get nodes {
     final profile = activeProfile;
     if (profile == null) return const [];
-    return profile.isMerged ? _mergedNodes(profile) : profile.activeNodes;
+    return _nodes ??= profile.isMerged ? _mergedNodes(profile) : profile.activeNodes;
   }
 
   /// 合并配置的节点。不同来源可能有同名节点，sing-box 要求 tag 唯一，重名的加上来源名
@@ -135,6 +152,7 @@ class CoreManager extends ChangeNotifier {
   Future<void> load() async {
     settings = await store.loadSettings();
     profiles = await store.loadProfiles();
+    _nodes = null;
     _states = platform.states.listen(_onState);
     _links = platform.links.listen(_onLink);
     final link = await platform.takePendingLink();
@@ -155,6 +173,7 @@ class CoreManager extends ChangeNotifier {
   void dispose() {
     _states?.cancel();
     _links?.cancel();
+    _autoUpdate?.cancel();
     pendingImport.dispose();
     _api?.close();
     super.dispose();
@@ -295,6 +314,14 @@ class CoreManager extends ChangeNotifier {
     if (isRunning && settings.capture) {
       await _applyCapture();
     }
+    unawaited(updateDueProfiles());
+  }
+
+  Timer? _autoUpdate;
+
+  /// 定时检查到期的订阅。间隔最短 5 分钟，每分钟看一次足够了
+  void startAutoUpdate() {
+    _autoUpdate ??= Timer.periodic(const Duration(minutes: 1), (_) => unawaited(updateDueProfiles()));
   }
 
   Future<void> setMode(RouteMode mode) async {
@@ -327,10 +354,17 @@ class CoreManager extends ChangeNotifier {
     final rules = Directory('${directory.path}/rules');
     await rules.create(recursive: true);
 
+    final profile = activeProfile;
+    final routing = profile != null && profile.keepProviderRules && settings.providerRulesEnabled ? profile.routing : null;
+    final dns = profile != null && profile.preferOutboundDns && profile.outboundDns.isNotEmpty ? profile.outboundDns.first : null;
+
     final options = CoreOptions(
       nodes: nodes,
       selected: selectedNode,
       groups: await _usableGroups(rules),
+      providerRouting: routing,
+      providerRuleSets: routing == null ? const {} : await _installRuleSets(rules, routing.ruleSets),
+      outboundDns: dns,
       tun: _tun,
       mixedPort: alwaysTun ? 0 : settings.mixedPort,
       upstreamPort: settings.upstreamPort,
@@ -348,6 +382,7 @@ class CoreManager extends ChangeNotifier {
       testUrl: settings.testUrl,
     );
     await File('${directory.path}/config.json').writeAsString(jsonEncode(CoreConfig.build(options)), flush: true);
+    needsReload = false;
   }
 
   /// 把用到的规则集放到内核读得到的位置。缺文件的规则集不能写进配置，否则内核起不来
@@ -355,22 +390,30 @@ class CoreManager extends ChangeNotifier {
     final usable = <RuleGroup>[];
     for (final group in settings.groups) {
       if (!group.enabled) continue;
-      final available = <String>[];
-      for (final name in group.ruleSets) {
-        final file = File('${directory.path}/$name.srs');
-        final bytes = await loadRuleSet(name);
-        if (bytes != null) {
-          await file.writeAsBytes(bytes);
-          available.add(name);
-        } else if (await file.exists()) {
-          available.add(name);
-        } else {
-          logger.w('rule set $name is missing');
-        }
-      }
-      usable.add(RuleGroup.fromJson(group.toJson())..ruleSets = available);
+      final available = await _installRuleSets(directory, group.ruleSets);
+      usable.add(RuleGroup.fromJson(group.toJson())..ruleSets = available.toList());
     }
     return usable;
+  }
+
+  /// 装好 [names] 里能找到的规则集，返回可用的。已经装过的不再读内置文件
+  Future<Set<String>> _installRuleSets(Directory directory, Iterable<String> names) async {
+    final available = <String>{};
+    for (final name in names) {
+      final file = File('${directory.path}/$name.srs');
+      if (await file.exists()) {
+        available.add(name);
+        continue;
+      }
+      final bytes = await loadRuleSet(name);
+      if (bytes == null) {
+        logger.w('rule set $name is missing');
+        continue;
+      }
+      await file.writeAsBytes(bytes);
+      available.add(name);
+    }
+    return available;
   }
 
   /// 配置变了。运行中要重载内核，这会断开现有连接
@@ -389,34 +432,47 @@ class CoreManager extends ChangeNotifier {
 
   // ---- 配置管理 ----
 
-  /// 添加配置。[input] 是订阅地址，或配置内容本身。第一份配置自动成为当前配置
-  Future<Profile> addProfile(String input, {String? name}) async {
-    final text = input.trim();
+  /// 添加配置。[input] 是订阅地址、一键导入链接，或配置内容本身。[options] 带着用户选好的选项。
+  /// 第一份配置自动成为当前配置
+  Future<Profile> addProfile(String input, {String? name, Profile? options}) async {
+    var text = input.trim();
+    final explicitName = _firstNotEmpty(name);
+    if (explicitName != null && profiles.any((e) => e.name == explicitName)) {
+      throw const DuplicateProfileException('已经有同名的配置了');
+    }
+
+    final link = ImportLink.parse(text);
+    if (link != null) text = link.url;
+    text = Subscription.normalizeUrl(text);
+    if (profiles.any((e) => e.url == text)) {
+      throw const DuplicateProfileException('这份配置已经添加过了');
+    }
+
     final id = DateTime.now().microsecondsSinceEpoch.toString();
-    final Profile profile;
+    final profile = Profile(id: id, name: explicitName ?? '');
+    if (options != null) profile.copyOptionsFrom(options);
+    if (link != null && link.outboundDns.isNotEmpty) {
+      profile
+        ..outboundDns = link.outboundDns
+        ..preferOutboundDns = true;
+    }
 
     if (_isSubscriptionUrl(text)) {
-      final result = await Subscription.fetch(text, proxy: proxyAddress);
-      profile = Profile(
-        id: id,
-        name: _firstNotEmpty(name, result.title) ?? Subscription.nameFromUrl(text),
-        url: text,
-        info: result.info,
-        website: result.website,
-        updateHours: result.updateHours ?? Profile.defaultUpdateHours,
-        updatedAt: DateTime.now(),
-        nodes: result.parsed.outbounds,
-        skipped: result.parsed.skipped,
-      );
+      profile.url = text;
+      final result = await _download(profile);
+      _apply(profile, result);
+      final automatic = _firstNotEmpty(link?.name ?? Subscription.nameInLink(text), result.title) ??
+          await Subscription.siteTitle(text, profile.userAgent, proxy: proxyAddress) ??
+          Subscription.nameFromUrl(text);
+      profile.name = explicitName ?? _uniqueName(automatic);
     } else {
       final parsed = ProfileParser.parse(text);
-      profile = Profile(
-        id: id,
-        name: _firstNotEmpty(name) ?? '配置 ${profiles.length + 1}',
-        updatedAt: DateTime.now(),
-        nodes: parsed.outbounds,
-        skipped: parsed.skipped,
-      );
+      profile
+        ..name = explicitName ?? _uniqueName('配置 ${profiles.length + 1}')
+        ..updatedAt = DateTime.now()
+        ..nodes = parsed.outbounds
+        ..routing = parsed.routing
+        ..skipped = parsed.skipped;
     }
 
     profiles = [...profiles, profile];
@@ -426,6 +482,36 @@ class CoreManager extends ChangeNotifier {
     }
     notifyListeners();
     return profile;
+  }
+
+  /// 自动取的名称重复时加序号。用户自己填的重名会提示，不替他改
+  String _uniqueName(String name) {
+    var candidate = name;
+    for (var index = 2; profiles.any((e) => e.name == candidate); index++) {
+      candidate = '$name $index';
+    }
+    return candidate;
+  }
+
+  Future<SubscriptionResult> _download(Profile profile) async {
+    return Subscription.fetch(
+      profile.url!,
+      userAgent: profile.userAgent,
+      strategy: profile.downloadStrategy,
+      proxy: proxyAddress,
+      headers: profile.xhwid ? await DeviceIdentity.headers(settings.deviceId) : const {},
+      decryptPassword: profile.decryptPassword,
+    );
+  }
+
+  void _apply(Profile profile, SubscriptionResult result) {
+    profile
+      ..nodes = result.parsed.outbounds
+      ..routing = result.parsed.routing
+      ..skipped = result.parsed.skipped
+      ..info = result.info ?? profile.info
+      ..website = profile.website?.isNotEmpty == true ? profile.website : result.website
+      ..updatedAt = DateTime.now();
   }
 
   static String? _firstNotEmpty(String? first, [String? second]) {
@@ -450,29 +536,49 @@ class CoreManager extends ChangeNotifier {
     return profile;
   }
 
-  /// 更新订阅。失败时保留原来的节点
-  Future<void> updateProfile(Profile profile) async {
-    final url = profile.url;
-    if (url == null) return;
+  /// 更新订阅。失败时保留原来的节点。没开“更新后重新加载”时内核继续用旧配置，不打断现有连接
+  Future<void> updateProfile(Profile profile, {bool automatic = false}) async {
+    if (profile.url == null) return;
 
-    final result = await Subscription.fetch(url, userAgent: profile.userAgent, proxy: proxyAddress);
-    profile
-      ..nodes = result.parsed.outbounds
-      ..skipped = result.parsed.skipped
-      ..info = result.info ?? profile.info
-      ..website = result.website ?? profile.website
-      ..updatedAt = DateTime.now();
+    _apply(profile, await _download(profile));
+    _nodes = null;
     await store.saveProfiles(profiles);
-    if (profile.id == settings.activeProfileId) await _applyConfig();
+
+    if (_usesProfile(profile) && isRunning) {
+      if (profile.reloadAfterUpdate) {
+        await _applyConfig();
+        if (automatic && profile.testLatencyAfterUpdate) unawaited(testLatency());
+      } else {
+        needsReload = true;
+      }
+    }
     notifyListeners();
   }
 
+  /// 当前配置就是它，或者是用到它的合并配置
+  bool _usesProfile(Profile profile) {
+    final active = activeProfile;
+    return active != null && (active.id == profile.id || active.sources.contains(profile.id));
+  }
+
+  bool _updatingDue = false;
+
   /// 更新到期的订阅，一份失败不影响其他
   Future<void> updateDueProfiles() async {
+    if (_updatingDue) return;
+    _updatingDue = true;
+    try {
+      await _updateDue();
+    } finally {
+      _updatingDue = false;
+    }
+  }
+
+  Future<void> _updateDue() async {
     final now = DateTime.now();
     for (final profile in profiles.where((e) => e.isDue(now)).toList()) {
       try {
-        await updateProfile(profile);
+        await updateProfile(profile, automatic: true);
       } on Exception catch (e) {
         logger.w('update ${profile.name} failed: $e');
       }
@@ -480,14 +586,22 @@ class CoreManager extends ChangeNotifier {
   }
 
   Future<void> saveProfile(Profile profile) async {
+    _nodes = null;
     await store.saveProfiles(profiles);
-    if (profile.id == settings.activeProfileId) await _applyConfig();
+    if (_usesProfile(profile)) await _applyConfig();
     notifyListeners();
+  }
+
+  /// 把自动移除的节点放回来
+  Future<void> restoreRemovedNodes(Profile profile) async {
+    profile.removedNodes = {};
+    await saveProfile(profile);
   }
 
   Future<void> setActiveProfile(String id) async {
     settings.activeProfileId = id;
     delays.clear();
+    _nodes = null;
     await store.saveSettings(settings);
     await _applyConfig();
     notifyListeners();
@@ -497,6 +611,7 @@ class CoreManager extends ChangeNotifier {
     final wasActive = id == settings.activeProfileId;
     profiles = profiles.where((e) => e.id != id).toList();
     settings.selectedNodes.remove(id);
+    _nodes = null;
     if (wasActive) {
       settings.activeProfileId = profiles.isEmpty ? null : profiles.first.id;
       delays.clear();
@@ -543,10 +658,53 @@ class CoreManager extends ChangeNotifier {
       delays
         ..clear()
         ..addAll(result);
+      await _removeFailedNodes();
     } finally {
       testing = false;
       notifyListeners();
     }
+  }
+
+  static const int _removeAttempts = 3;
+
+  /// 自动移除失败节点，一个节点最多试 3 次。全部失败时不动：那多半是本机断网了
+  Future<void> _removeFailedNodes() async {
+    final profile = activeProfile;
+    if (profile == null || profile.isMerged || !profile.autoRemoveFailed || delays.isEmpty) return;
+
+    var failed = nodes.map((e) => e['tag'].toString()).where((tag) => !delays.containsKey(tag)).toList();
+    for (var attempt = 1; attempt < _removeAttempts && failed.isNotEmpty; attempt++) {
+      final stillFailing = <String>[];
+      for (final tag in failed) {
+        final delay = await api.delay(tag, url: settings.testUrl);
+        if (delay == null) {
+          stillFailing.add(tag);
+        } else {
+          delays[tag] = delay;
+        }
+      }
+      failed = stillFailing;
+    }
+
+    if (failed.isEmpty) return;
+    profile.removedNodes = {...profile.removedNodes, ...failed};
+    await saveProfile(profile);
+  }
+
+  // ---- User-Agent ----
+
+  Future<void> addUserAgent(String userAgent) async {
+    final text = userAgent.trim();
+    if (text.isEmpty || UserAgents.presets.contains(text) || settings.userAgents.contains(text)) return;
+    settings.userAgents = [...settings.userAgents, text];
+    await store.saveSettings(settings);
+    notifyListeners();
+  }
+
+  Future<void> removeUserAgent(String userAgent) async {
+    settings.userAgents = settings.userAgents.where((e) => e != userAgent).toList();
+    await store.saveSettings(settings);
+    notifyListeners();
   }
 
   // ---- 分流 ----
@@ -565,10 +723,12 @@ class CoreManager extends ChangeNotifier {
     final backup = CoreBackup.decode(bytes);
     final restored = backup.settings;
     profiles = backup.profiles;
+    _nodes = null;
     settings
       ..activeProfileId = restored.activeProfileId
       ..selectedNodes = restored.selectedNodes
       ..favorites = restored.favorites
+      ..userAgents = restored.userAgents
       ..groups = restored.groups
       ..mode = restored.mode
       ..systemProxy = restored.systemProxy

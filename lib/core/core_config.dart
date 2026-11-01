@@ -1,3 +1,4 @@
+import 'clash_routing.dart';
 import 'rule_group.dart';
 import 'share_link.dart';
 
@@ -12,6 +13,15 @@ class CoreOptions {
   /// 首页选中的节点 tag，空表示自动选择
   final String? selected;
   final List<RuleGroup> groups;
+
+  /// 机场的分流规则，排在用户的分流组之后
+  final ProviderRouting? providerRouting;
+
+  /// 机场规则里可用的规则集
+  final Set<String> providerRuleSets;
+
+  /// 解析节点域名用的 DNS，空表示用直连 DNS
+  final String? outboundDns;
 
   /// iOS 走 TUN；Windows 默认走本地代理，也可以开 TUN
   final bool tun;
@@ -47,6 +57,9 @@ class CoreOptions {
     required this.nodes,
     this.selected,
     this.groups = const [],
+    this.providerRouting,
+    this.providerRuleSets = const {},
+    this.outboundDns,
     this.tun = false,
     this.mixedPort = 0,
     required this.upstreamPort,
@@ -85,6 +98,7 @@ class CoreConfig {
   static const String _dnsRemote = 'dns-remote';
   static const String _dnsDirect = 'dns-direct';
   static const String _dnsFakeIp = 'dns-fakeip';
+  static const String _dnsOutbound = 'dns-outbound';
 
   static const String modeRule = 'Rule';
   static const String modeGlobal = 'Global';
@@ -160,6 +174,7 @@ class CoreConfig {
           'tolerance': 50,
         },
       ...options.nodes,
+      ...?options.providerRouting?.outbounds(nodeTags, testUrl: options.testUrl),
       {'type': 'direct', 'tag': _tagDirect},
       {'type': 'http', 'tag': _tagMitm, 'server': '127.0.0.1', 'server_port': options.mitmPort},
     ];
@@ -173,6 +188,7 @@ class CoreConfig {
       'servers': [
         _dnsServer(options.remoteDns, _dnsRemote, detour: _tagSelect),
         _dnsServer(options.directDns, _dnsDirect),
+        if (options.outboundDns != null) _dnsServer(options.outboundDns!, _dnsOutbound),
         if (fakeIp)
           {
             'type': 'fakeip',
@@ -227,7 +243,8 @@ class CoreConfig {
 
   static Map<String, dynamic> _route(CoreOptions options, List<String> nodeTags) {
     final enabled = options.groups.where((e) => e.enabled).toList();
-    final ruleSets = {for (final group in enabled) ...group.ruleSets};
+    final provider = options.providerRouting;
+    final ruleSets = {for (final group in enabled) ...group.ruleSets, ...options.providerRuleSets};
     final frontDoors = [if (options.tun) _tagTun, if (options.mixedPort > 0) _tagMixed];
 
     return {
@@ -241,6 +258,7 @@ class CoreConfig {
         for (final mode in [modeGlobal, modeCaptureGlobal])
           {'clash_mode': mode, 'action': 'route', 'outbound': _tagSelect},
         for (final group in enabled) ..._groupRule(group, nodeTags),
+        ...?provider?.routeRules(nodeTags, options.providerRuleSets, fallback: _tagSelect),
       ],
       'rule_set': [
         for (final name in ruleSets)
@@ -251,10 +269,17 @@ class CoreConfig {
             'path': '${options.ruleSetDirectory}/$name.srs',
           },
       ],
-      'final': _tagSelect,
+      'final': _final(provider, nodeTags),
       'auto_detect_interface': true,
-      'default_domain_resolver': {'server': _dnsDirect},
+      'default_domain_resolver': {'server': options.outboundDns != null ? _dnsOutbound : _dnsDirect},
     };
+  }
+
+  /// 机场的 MATCH 规则决定兜底去向。route.final 只能是 outbound，拦截写不进去，就还走选中的节点
+  static String _final(ProviderRouting? provider, List<String> nodeTags) {
+    final target = provider?.finalTarget;
+    if (target == null) return _tagSelect;
+    return provider!.action(target, nodeTags, fallback: _tagSelect)['outbound'] ?? _tagSelect;
   }
 
   static List<Map<String, dynamic>> _mitmRules(String mode, List<String> frontDoors, List<String>? domains) {

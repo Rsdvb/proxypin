@@ -397,6 +397,7 @@ void main() {
       });
 
       final profile = await manager.addProfile('http://127.0.0.1:${server.port}/sub');
+      profile.reloadAfterUpdate = true;
       await manager.connect();
       await manager.updateProfile(profile);
 
@@ -485,6 +486,7 @@ void main() {
       second.nodes = [
         {'tag': 'C', 'type': 'trojan'}
       ];
+      await manager.saveProfile(second);
       expect(manager.nodes.map((e) => e['tag']), ['A', 'C']);
     });
 

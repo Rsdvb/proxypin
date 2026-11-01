@@ -18,6 +18,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:proxypin/utils/app_identity.dart';
 import 'package:proxypin/network/util/logger.dart';
 import 'package:proxypin/utils/platform.dart';
 import 'package:path_provider/path_provider.dart';
@@ -63,7 +64,7 @@ class ThemeModel {
 }
 
 class AppConfiguration {
-  static const String version = "1.4.0";
+  static const String version = AppIdentity.version;
 
   ValueNotifier<bool> globalChange = ValueNotifier(false);
 
