@@ -1,7 +1,8 @@
 name: TestFlight
 
-# Signs with an App Store Connect API key and uploads to TestFlight. Xcode creates
-# the certificates and profiles itself, so nothing here needs a Mac at hand.
+# Signs with an App Store Connect API key and uploads to TestFlight, so nothing here
+# needs a Mac at hand. ios/fastlane/Fastfile does the signing and says what has to be
+# set up on Apple's side first.
 #
 # Repository secrets:
 #   APPLE_TEAM_ID         Team ID from the Membership page
@@ -69,45 +70,34 @@ jobs:
         with:
           path: ios/Libbox/Libbox.xcframework
           key: libbox-${{ env.SING_BOX_VERSION }}-${{ hashFiles('tool/build_libbox.sh') }}
-      - name: Write the API key
-        env:
-          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
-          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-        run: |
-          mkdir -p "$RUNNER_TEMP/keys"
-          printf '%s' "$ASC_KEY_P8" > "$RUNNER_TEMP/keys/AuthKey_$ASC_KEY_ID.p8"
       - name: Prepare the Xcode project
         # Each upload needs a build number App Store Connect has not seen
         run: flutter build ios --release --config-only --build-number="$GITHUB_RUN_NUMBER"
       - name: Install pods
         run: pod install --project-directory=ios
-      - name: Archive
+      - name: Sign, build and upload
+        working-directory: ios
         env:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          FASTLANE_OPT_OUT_USAGE: '1'
+          FASTLANE_SKIP_UPDATE_CHECK: '1'
+          FASTLANE_HIDE_CHANGELOG: '1'
+          # The default three seconds is too short for this workspace on a runner
+          FASTLANE_XCODEBUILD_SETTINGS_TIMEOUT: '180'
+          FASTLANE_XCODE_LIST_TIMEOUT: '180'
+          LC_ALL: en_US.UTF-8
+          LANG: en_US.UTF-8
         run: |
-          xcodebuild archive \
-            -workspace ios/Runner.xcworkspace -scheme Runner -configuration Release \
-            -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/RsProxy.xcarchive" \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "$RUNNER_TEMP/keys/AuthKey_$ASC_KEY_ID.p8" \
-            -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
-            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" CODE_SIGN_STYLE=Automatic
-      - name: Upload
-        env:
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
-        run: |
-          /usr/libexec/PlistBuddy -c "Set :teamID $APPLE_TEAM_ID" ios/ExportOptions.plist
-          xcodebuild -exportArchive \
-            -archivePath "$RUNNER_TEMP/RsProxy.xcarchive" \
-            -exportOptionsPlist ios/ExportOptions.plist \
-            -exportPath "$RUNNER_TEMP/export" \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "$RUNNER_TEMP/keys/AuthKey_$ASC_KEY_ID.p8" \
-            -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID"
-      - name: Remove the API key
-        if: always()
-        run: rm -rf "$RUNNER_TEMP/keys"
+          source Flutter/flutter_export_environment.sh
+          fastlane testflight
+      - name: Keep the build log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gym-logs
+          path: ~/Library/Logs/gym
+          if-no-files-found: ignore
+          retention-days: 7

@@ -1,0 +1,104 @@
+# Signs and uploads from a machine that holds nothing but the App Store Connect API key.
+#
+# Xcode's own automatic signing can't do this on a clean machine: it wants a development
+# certificate and a registered device first. So this makes a distribution certificate
+# and the two profiles itself.
+#
+# The API can't touch App Groups, so these are done once on the developer site: both App
+# IDs registered with App Groups, Network Extensions and Access Wi-Fi Information on, and
+# the group assigned to each. The app record has to exist in App Store Connect too.
+require 'fileutils'
+require 'securerandom'
+
+default_platform(:ios)
+
+platform :ios do
+  desc 'Sign with the API key alone and upload to TestFlight'
+  lane :testflight do
+    app_id = 'io.github.rsdvb.rsproxy'
+    tunnel_id = "#{app_id}.tunnel"
+    group = "group.#{app_id}"
+    team_id = ENV.fetch('APPLE_TEAM_ID')
+    work = File.join(ENV.fetch('RUNNER_TEMP'), 'signing')
+    FileUtils.mkdir_p(work)
+
+    # A key pasted into a form on a phone can lose its line breaks, and PEM needs them
+    body = ENV.fetch('ASC_KEY_P8').gsub(/-----[^-]+-----/, '').gsub(/\s+/, '')
+    key = app_store_connect_api_key(
+      key_id: ENV.fetch('ASC_KEY_ID'),
+      issuer_id: ENV.fetch('ASC_ISSUER_ID'),
+      key_content: "-----BEGIN PRIVATE KEY-----\n#{body.scan(/.{1,64}/).join("\n")}\n-----END PRIVATE KEY-----\n",
+      duration: 1200
+    )
+
+    # Everything that only fails at the end of a long build is checked before it
+    UI.user_error!("No app record for #{app_id} in App Store Connect") if Spaceship::ConnectAPI::App.find(app_id).nil?
+    [app_id, tunnel_id].each do |id|
+      bundle = Spaceship::ConnectAPI::BundleId.find(id)
+      UI.user_error!("#{id} is not registered as an App ID") if bundle.nil?
+      missing = %w[APP_GROUPS NETWORK_EXTENSIONS ACCESS_WIFI_INFORMATION] - bundle.get_capabilities.map(&:capability_type)
+      UI.user_error!("#{id} is missing #{missing.join(', ')}") unless missing.empty?
+    end
+
+    # The private key only ever lives on this machine, so a certificate from an earlier
+    # run is no use, and Apple caps how many a team holds. Revoking one leaves uploaded
+    # builds alone. The newest stays because Apple may still be processing its build.
+    Spaceship::ConnectAPI::Certificate.all(filter: { certificateType: 'DISTRIBUTION' })
+                                      .sort_by(&:expiration_date)[0...-1].each(&:delete!)
+
+    keychain = File.join(work, 'signing.keychain-db')
+    keychain_password = SecureRandom.hex(16)
+    create_keychain(
+      path: keychain,
+      password: keychain_password,
+      default_keychain: true,
+      unlock: true,
+      timeout: 7200,
+      lock_when_sleeps: false
+    )
+    get_certificates(api_key: key, output_path: work, keychain_path: keychain, keychain_password: keychain_password)
+
+    profiles = {}
+    [app_id, tunnel_id].each do |id|
+      get_provisioning_profile(api_key: key, app_identifier: id, force: true, output_path: work)
+      profile = FastlaneCore::ProvisioningProfile.parse(lane_context[SharedValues::SIGH_PROFILE_PATH])
+      unless profile['Entitlements']['com.apple.security.application-groups'].to_a.include?(group)
+        UI.user_error!("#{group} is not assigned to #{id}")
+      end
+      profiles[id] = lane_context[SharedValues::SIGH_NAME]
+    end
+
+    { 'Runner' => app_id, 'ProxyPin' => tunnel_id }.each do |target, id|
+      update_code_signing_settings(
+        path: 'Runner.xcodeproj',
+        use_automatic_signing: false,
+        team_id: team_id,
+        targets: [target],
+        build_configurations: ['Release'],
+        code_sign_identity: 'Apple Distribution',
+        profile_name: profiles[id]
+      )
+    end
+
+    # The extension has no Flutter settings of its own, and Apple wants its version to
+    # match the app's
+    version = "CURRENT_PROJECT_VERSION=#{ENV.fetch('FLUTTER_BUILD_NUMBER')} MARKETING_VERSION=#{ENV.fetch('FLUTTER_BUILD_NAME')}"
+    ipa = build_app(
+      workspace: 'Runner.xcworkspace',
+      scheme: 'Runner',
+      configuration: 'Release',
+      output_directory: work,
+      output_name: 'RsProxy.ipa',
+      export_method: 'app-store',
+      export_team_id: team_id,
+      export_options: { provisioningProfiles: profiles, manageAppVersionAndBuildNumber: false },
+      xcargs: version
+    )
+
+    sh('unzip', '-q', ipa, '-d', File.join(work, 'ipa'))
+    sh('python3', File.join(ENV.fetch('GITHUB_WORKSPACE'), 'tool/check_ios_bundle.py'),
+       File.join(work, 'ipa/Payload/Runner.app'), '--signed')
+
+    upload_to_testflight(api_key: key, ipa: ipa, skip_submission: true, skip_waiting_for_build_processing: true)
+  end
+end
