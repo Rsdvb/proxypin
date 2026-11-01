@@ -78,10 +78,12 @@ void main() {
   });
 
   test('a signature still running when the cache is cleared is not cached', () async {
-    final pending = CertificateManager.getCertificateContext('stale.example.test');
-    CertificateManager.cleanCache();
-    await pending;
-    expect(CertificateManager.get('stale.example.test'), isNull);
+    final stale = await () {
+      final pending = CertificateManager.getCertificateContext('stale.example.test');
+      CertificateManager.cleanCache();
+      return pending;
+    }();
+    expect(await CertificateManager.getCertificateContext('stale.example.test'), isNot(same(stale)));
   });
 
   test('a plain signature finishing late does not replace the remote-cert one', () async {
@@ -90,11 +92,48 @@ void main() {
 
     final plain = CertificateManager.getCertificateContext(host);
     expect(await CertificateManager.generateByRemoteCert(host, origin), isTrue);
-    final fromRemote = CertificateManager.get(host);
-    expect(fromRemote, isNotNull);
+    final fromRemote = await CertificateManager.getCertificateContext(host);
 
     await plain;
-    expect(CertificateManager.get(host), same(fromRemote));
+    expect(await CertificateManager.getCertificateContext(host), same(fromRemote));
+  });
+
+  test('each ALPN list gets its own context and reuses the signature', () async {
+    const host = 'alpn.example.test';
+    final h2 = await CertificateManager.getCertificateContext(host, alpnProtocols: ['h2', 'http/1.1']);
+    final h1 = await CertificateManager.getCertificateContext(host, alpnProtocols: ['http/1.1']);
+    final none = await CertificateManager.getCertificateContext(host);
+    expect({h2, h1, none}, hasLength(3));
+
+    expect(await CertificateManager.getCertificateContext(host, alpnProtocols: ['h2', 'http/1.1']), same(h2));
+    expect(CertificateManager.get(host, alpnProtocols: ['http/1.1']), same(h1));
+  });
+
+  test('concurrent handshakes with different ALPN lists each get their own protocol', () async {
+    const host = 'alpn-race.example.test';
+
+    Future<SecureServerSocket> serve(List<String> protocols) async {
+      final context = await CertificateManager.getCertificateContext(host, alpnProtocols: protocols);
+      final server = await SecureServerSocket.bind(InternetAddress.loopbackIPv4, 0, context);
+      addTearDown(server.close);
+      server.listen((socket) => socket.listen((_) {}, onError: (_) {}));
+      return server;
+    }
+
+    final h2 = await serve(['h2']), h1 = await serve(['http/1.1']);
+
+    Future<String?> negotiate(SecureServerSocket server) async {
+      final client = await SecureSocket.connect(InternetAddress.loopbackIPv4, server.port,
+          onBadCertificate: (_) => true, supportedProtocols: const ['h2', 'http/1.1']);
+      final selected = client.selectedProtocol;
+      client.destroy();
+      return selected;
+    }
+
+    final results = await Future.wait([for (var i = 0; i < 40; i++) negotiate(i.isEven ? h2 : h1)]);
+    for (var i = 0; i < results.length; i++) {
+      expect(results[i], i.isEven ? 'h2' : 'http/1.1', reason: 'connection $i');
+    }
   });
 
   test('a host can be signed again after the cache is cleared', () async {

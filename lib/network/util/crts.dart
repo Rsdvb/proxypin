@@ -42,17 +42,29 @@ Future<void> main() async {
 
 enum StartState { uninitialized, initializing, initialized }
 
+/// 域名叶子证书及其 [SecurityContext]
+class _LeafCertificate {
+  final String pem;
+
+  /// ALPN 协议列表 -> 上下文。
+  /// 服务端 ALPN 只能设在 SecurityContext 上，而 setAlpnProtocols 会释放旧缓冲区，
+  /// 其他连接的握手此时可能正在 IO 线程上读它。所以上下文创建后不再修改，每种列表各用一个。
+  final Map<String, SecurityContext> contexts = {};
+
+  _LeafCertificate(this.pem);
+}
+
 class CertificateManager {
   /// 证书缓存
-  static final ExpiringCache<String, SecurityContext> _certificateMap =
-      ExpiringCache<String, SecurityContext>(const Duration(minutes: 30));
+  static final ExpiringCache<String, _LeafCertificate> _certificateMap =
+      ExpiringCache<String, _LeafCertificate>(const Duration(minutes: 30));
 
   /// 远程服务器真实证书缓存(ssl验证失败时拉取, 用于生成更贴近真实证书的叶子证书)
   static final ExpiringCache<String, X509CertificateData> _remoteCertMap =
       ExpiringCache<String, X509CertificateData>(const Duration(minutes: 15));
 
   /// 生成中的证书, 同一域名的并发握手共用一次签名
-  static final Map<String, Future<SecurityContext>> _pendingContexts = {};
+  static final Map<String, Future<_LeafCertificate>> _pendingCertificates = {};
 
   /// 缓存代次, 清除缓存时递增, 使清除前发起的签名结果不再写入缓存
   static int _cacheGeneration = 0;
@@ -76,34 +88,38 @@ class CertificateManager {
   static StartState _state = StartState.uninitialized;
   static Completer<void> _initializationCompleter = Completer<void>();
 
-  static SecurityContext? get(String host) {
-    return _certificateMap[host];
+  static SecurityContext? get(String host, {List<String>? alpnProtocols}) {
+    return _certificateMap[host]?.contexts[_alpnKey(alpnProtocols)];
   }
+
+  static String _alpnKey(List<String>? alpnProtocols) => alpnProtocols?.join(',') ?? '';
 
   static X509CertificateData? get caCert => _caCert;
 
   /// 清除缓存
   static void cleanCache() {
     _cacheGeneration++;
-    _pendingContexts.clear();
+    _pendingCertificates.clear();
     _certificateMap.clear();
     _remoteCertMap.clear();
   }
 
   /// 获取域名自签名证书
-  static Future<SecurityContext> getCertificateContext(String host) async {
-    SecurityContext? securityContext = _certificateMap[host];
-    if (securityContext != null) {
-      return securityContext;
-    }
+  ///
+  /// [alpnProtocols] 本次握手向客户端提供的 ALPN 协议列表
+  static Future<SecurityContext> getCertificateContext(String host, {List<String>? alpnProtocols}) async {
+    final certificate = _certificateMap[host] ?? await _pendingCertificate(host);
+    return certificate.contexts[_alpnKey(alpnProtocols)] ??= _createSecurityContext(certificate.pem, alpnProtocols);
+  }
 
+  static Future<_LeafCertificate> _pendingCertificate(String host) async {
     if (_state != StartState.initialized) {
       await initCAConfig();
     }
 
-    return _pendingContexts[host] ??= _createSecurityContext(host, remoteCert: _remoteCertMap[host]).whenComplete(() {
+    return _pendingCertificates[host] ??= _createCertificate(host, remoteCert: _remoteCertMap[host]).whenComplete(() {
       // 不能写成箭头函数：remove 返回的正是这个 Future，whenComplete 会等它完成而死锁
-      _pendingContexts.remove(host);
+      _pendingCertificates.remove(host);
     });
   }
 
@@ -131,7 +147,7 @@ class CertificateManager {
         await initCAConfig();
       }
 
-      await _createSecurityContext(host, remoteCert: remoteCert);
+      await _createCertificate(host, remoteCert: remoteCert);
       logger.d('regenerate certificate by remote cert for $host');
       return true;
     } catch (e, t) {
@@ -140,20 +156,27 @@ class CertificateManager {
     }
   }
 
-  /// 生成域名叶子证书的 [SecurityContext] 并写入缓存
-  static Future<SecurityContext> _createSecurityContext(String host, {X509CertificateData? remoteCert}) async {
+  /// 生成域名叶子证书并写入缓存
+  static Future<_LeafCertificate> _createCertificate(String host, {X509CertificateData? remoteCert}) async {
     final generation = _cacheGeneration;
-    final cer = await _generateInBackground(host, remoteCert);
-
-    // 本端是 TLS 服务端且不校验客户端证书, 用不到信任根
-    var securityContext = SecurityContext(withTrustedRoots: false)
-      ..useCertificateChainBytes(cer.codeUnits)
-      ..allowLegacyUnsafeRenegotiation = true
-      ..usePrivateKeyBytes(_serverKeyPem);
+    final certificate = _LeafCertificate(await _generateInBackground(host, remoteCert));
 
     // 签名期间缓存被清除, 或已拿到更贴近真实证书的 remoteCert, 这次的结果都不该留在缓存里
     if (generation == _cacheGeneration && identical(remoteCert, _remoteCertMap[host])) {
-      _certificateMap[host] = securityContext;
+      _certificateMap[host] = certificate;
+    }
+    return certificate;
+  }
+
+  static SecurityContext _createSecurityContext(String pem, List<String>? alpnProtocols) {
+    // 本端是 TLS 服务端且不校验客户端证书, 用不到信任根
+    var securityContext = SecurityContext(withTrustedRoots: false)
+      ..useCertificateChainBytes(pem.codeUnits)
+      ..allowLegacyUnsafeRenegotiation = true
+      ..usePrivateKeyBytes(_serverKeyPem);
+
+    if (alpnProtocols != null) {
+      securityContext.setAlpnProtocols(alpnProtocols, true);
     }
     return securityContext;
   }

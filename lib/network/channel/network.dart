@@ -250,8 +250,6 @@ class Server extends Network {
         await remoteChannel.startSecureSocket(channelContext, host: serviceName, supportedProtocols: supportProtocols);
       }
 
-      //ssl自签证书
-      var certificate = await CertificateManager.getCertificateContext(serviceName!);
       var selectedProtocol = remoteChannel?.selectedProtocol;
 
       final offeredProtocols = TLS.supportProtocols(data);
@@ -273,7 +271,9 @@ class Server extends Network {
       }
       if (supportedProtocols?.isEmpty == true) supportedProtocols = null;
 
-      if (supportedProtocols != null) certificate.setAlpnProtocols(supportedProtocols, true);
+      //ssl自签证书
+      var certificate =
+          await CertificateManager.getCertificateContext(serviceName!, alpnProtocols: supportedProtocols);
 
       final httpDecoder = channel.dispatcher.decoder;
       final httpEncoder = channel.dispatcher.encoder;
