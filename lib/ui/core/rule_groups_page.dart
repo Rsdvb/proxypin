@@ -554,7 +554,7 @@ class _ManageRuleGroupsPageState extends State<ManageRuleGroupsPage> {
         ),
       ]),
       body: Align(
-        alignment: Alignment.topCenter,
+        alignment: Alignment.topLeft,
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: AppPage.contentWidth),
           child: ReorderableListView.builder(

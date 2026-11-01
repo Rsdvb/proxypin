@@ -546,8 +546,9 @@ class ContentColumn extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // 靠左和标题对齐：宽窗口里居中的话，标题和内容就对不上了
     return Align(
-      alignment: Alignment.topCenter,
+      alignment: Alignment.topLeft,
       child: ConstrainedBox(
         constraints: BoxConstraints(maxWidth: maxWidth),
         child: ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 24), children: children),

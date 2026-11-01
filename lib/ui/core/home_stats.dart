@@ -193,13 +193,17 @@ class _Tile extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         onLongPress: onLongPress,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(label, style: theme.textTheme.bodySmall),
-            const SizedBox(height: 6),
-            Text(value, style: theme.textTheme.titleSmall?.copyWith(fontFeatures: const [FontFeature.tabularFigures()])),
-          ]),
+        child: ConstrainedBox(
+          // 速度占两行，其余一行，高度要一样才排得齐
+          constraints: const BoxConstraints(minHeight: 82, minWidth: double.infinity),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(label, style: theme.textTheme.bodySmall),
+              const SizedBox(height: 6),
+              Text(value, style: theme.textTheme.titleSmall?.copyWith(fontFeatures: const [FontFeature.tabularFigures()])),
+            ]),
+          ),
         ),
       ),
     );

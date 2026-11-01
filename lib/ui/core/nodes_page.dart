@@ -536,7 +536,7 @@ class _NodesPageState extends State<NodesPage> {
             IconButton(tooltip: '显示设置', icon: const Icon(Icons.tune), onPressed: _openSettings),
           ]),
           body: Align(
-            alignment: Alignment.topCenter,
+            alignment: Alignment.topLeft,
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: AppPage.contentWidth),
               child: Column(children: [
