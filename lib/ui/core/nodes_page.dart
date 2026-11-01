@@ -69,7 +69,7 @@ class _NodesPageState extends State<NodesPage> {
                     subtitle: types[tag] == null ? null : Text(types[tag]!),
                     trailing: Row(mainAxisSize: MainAxisSize.min, children: [
                       if (delay != null) Text('$delay ms', style: TextStyle(color: delayColor(context, delay))),
-                      if (tag != 'auto' && tag != 'direct')
+                      if (types[tag] != null)
                         IconButton(
                           tooltip: '收藏',
                           icon: Icon(manager.settings.favorites.contains(tag) ? Icons.star : Icons.star_border, size: 20),
@@ -128,6 +128,7 @@ class _NodesPageState extends State<NodesPage> {
       int delayOf(String tag) => manager.delays[tag] ?? 1 << 30;
       matching.sort((a, b) => delayOf(a).compareTo(delayOf(b)));
     }
-    return [if (_keyword.isEmpty && _filter == null) ...[if (nodes.length > 1) 'auto', 'direct'], ...matching];
+    final groups = manager.settings.autoGroups.where((e) => e.membersIn(nodes).isNotEmpty).map((e) => e.tag);
+    return [if (_keyword.isEmpty && _filter == null) ...[if (nodes.length > 1) 'auto', ...groups, 'direct'], ...matching];
   }
 }

@@ -14,7 +14,43 @@ abstract class RuleTarget {
   /// 拦截。sing-box 里这是路由动作，不是 outbound
   static const String block = 'block';
 
+  /// 自定义自动选择组的去向是这个前缀加组名
+  static const String groupPrefix = 'auto:';
+
   static const List<String> builtIn = [selected, auto, direct, block];
+}
+
+/// 用户自建的自动选择组：从选中的节点里挑延迟最低的
+class AutoGroup {
+  String name;
+
+  /// 按节点名存，订阅更新后还能对上
+  List<String> nodes;
+
+  /// 节点名包含其中之一就算成员，新节点也能自动进来
+  List<String> keywords;
+
+  /// 前置组的名称，这个组的流量先经过它。空表示没有
+  String front;
+
+  AutoGroup({required this.name, this.nodes = const [], this.keywords = const [], this.front = ''});
+
+  String get tag => '${RuleTarget.groupPrefix}$name';
+
+  List<String> membersIn(Iterable<String> tags) {
+    final words = keywords.map((e) => e.toLowerCase()).toList();
+    return tags.where((tag) {
+      final lower = tag.toLowerCase();
+      return nodes.contains(tag) || words.any(lower.contains);
+    }).toList();
+  }
+
+  factory AutoGroup.fromJson(Map<String, dynamic> json) {
+    List<String> list(String key) => (json[key] as List?)?.map((e) => e.toString()).toList() ?? const [];
+    return AutoGroup(name: json['name'], nodes: list('nodes'), keywords: list('keywords'), front: json['front'] ?? '');
+  }
+
+  Map<String, dynamic> toJson() => {'name': name, 'nodes': nodes, 'keywords': keywords, 'front': front};
 }
 
 /// 分流组：一组匹配规则加一个去向。从上到下匹配，都不中就走兜底去向

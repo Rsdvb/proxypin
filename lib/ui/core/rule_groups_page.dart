@@ -9,6 +9,7 @@ import 'package:proxypin/core/dns_catalog.dart';
 import 'package:proxypin/core/rule_group.dart';
 import 'package:proxypin/utils/platform.dart';
 
+import 'auto_select_page.dart';
 import 'connect_page.dart';
 import 'rule_group_edit_page.dart';
 import 'rule_sets_page.dart';
@@ -64,8 +65,12 @@ class _RuleGroupsPageState extends State<RuleGroupsPage> {
         _ => nodeLabel(target),
       };
 
-  /// 选的节点在订阅更新后没了，这时实际走的是首页选中的节点
-  bool _isGone(String target) => !RuleTarget.builtIn.contains(target) && !_nodes.contains(target);
+  /// 选的节点在订阅更新后没了，或者自动选择组没有成员了，这时实际走的是首页选中的节点
+  bool _isGone(String target) =>
+      !RuleTarget.builtIn.contains(target) && !_nodes.contains(target) && !_usableGroups.contains(target);
+
+  Iterable<String> get _usableGroups =>
+      _manager.settings.autoGroups.where((e) => e.membersIn(_nodes).isNotEmpty).map((e) => e.tag);
 
   Widget _targetText(String target, {bool enabled = true}) {
     final theme = Theme.of(context);
@@ -84,6 +89,7 @@ class _RuleGroupsPageState extends State<RuleGroupsPage> {
       for (final choice in [
         RuleTarget.selected,
         if (nodes.length > 1) RuleTarget.auto,
+        ..._usableGroups,
         RuleTarget.direct,
         RuleTarget.block,
       ])
@@ -95,7 +101,7 @@ class _RuleGroupsPageState extends State<RuleGroupsPage> {
       if (nodes.isNotEmpty)
         ListTile(
           title: const Text('选择节点'),
-          subtitle: RuleTarget.builtIn.contains(current) ? null : Text(_targetLabel(current), maxLines: 1, overflow: TextOverflow.ellipsis),
+          subtitle: nodes.contains(current) ? Text(_targetLabel(current), maxLines: 1, overflow: TextOverflow.ellipsis) : null,
           trailing: const Icon(Icons.chevron_right),
           onTap: () => Navigator.pop(context, _nodeAction),
         ),
@@ -267,6 +273,25 @@ class _RuleGroupsPageState extends State<RuleGroupsPage> {
 
   void _reset() => _change(() => _groups = RuleGroup.defaults());
 
+  /// 自动选择组和链式代理改的是设置本身，离开分流页时一起保存
+  Future<void> _openAutoSelect() async {
+    final renamed = await Navigator.of(context).push<Map<String, String>>(MaterialPageRoute(
+      builder: (_) => const AutoSelectPage(),
+    ));
+    _change(() {
+      final settings = _manager.settings;
+      settings.finalTarget = renamed?[settings.finalTarget] ?? settings.finalTarget;
+      for (final group in _groups) {
+        group.target = renamed?[group.target] ?? group.target;
+      }
+    });
+  }
+
+  Future<void> _openChain() async {
+    await Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ChainProxyPage()));
+    _change(() {});
+  }
+
   Future<void> _openRuleSets() async {
     await Navigator.of(context).push(MaterialPageRoute(builder: (_) => const RuleSetsPage()));
     if (mounted) setState(() {});
@@ -308,6 +333,13 @@ class _RuleGroupsPageState extends State<RuleGroupsPage> {
           tilePadding: const EdgeInsets.symmetric(horizontal: 16),
           children: [
             ListTile(title: const Text('规则集'), trailing: const Icon(Icons.chevron_right), onTap: _openRuleSets),
+            ListTile(title: const Text('自动选择'), trailing: const Icon(Icons.chevron_right), onTap: _openAutoSelect),
+            ListTile(
+              title: const Text('链式代理'),
+              subtitle: settings.chain.isEmpty ? null : Text('${settings.chain.length} 个节点'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: _openChain,
+            ),
             SwitchListTile(
               title: const Text('隐藏未启用的分流规则'),
               value: settings.hideDisabledGroups,

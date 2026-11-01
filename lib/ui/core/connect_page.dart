@@ -8,6 +8,7 @@ import 'package:proxypin/core/core_manager.dart';
 import 'package:proxypin/core/core_platform.dart';
 import 'package:proxypin/core/core_service.dart';
 import 'package:proxypin/core/profile.dart';
+import 'package:proxypin/core/rule_group.dart';
 import 'package:proxypin/network/bin/server.dart';
 import 'package:proxypin/network/components/host_filter.dart';
 
@@ -355,6 +356,7 @@ class _TrafficLineState extends State<_TrafficLine> with WidgetsBindingObserver 
 String nodeLabel(String? tag) => switch (tag) {
       null || 'auto' => '自动选择',
       'direct' => '直连',
+      _ when tag.startsWith(RuleTarget.groupPrefix) => '自动选择 · ${tag.substring(RuleTarget.groupPrefix.length)}',
       _ => tag,
     };
 

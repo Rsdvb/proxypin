@@ -193,6 +193,211 @@ void main() {
     });
   });
 
+  group('custom auto groups', () {
+    final group = AutoGroup(name: 'Asia', nodes: const ['HK'], keywords: const ['jp']);
+
+    test('take named nodes and anything matching a keyword, ignoring case', () {
+      expect(group.membersIn(['HK', 'JP', 'US']), ['HK', 'JP']);
+    });
+
+    test('become urltest groups a rule can point at', () {
+      final options = CoreOptions(
+        nodes: _nodes,
+        autoGroups: [group],
+        groups: [RuleGroup(id: 'a', name: 'a', domainSuffixes: ['a.example'], target: group.tag)],
+        upstreamPort: 7891,
+        mitmPort: 9099,
+        clashPort: 9191,
+        clashSecret: 'secret',
+        ruleSetDirectory: 'rules',
+        cachePath: 'cache.db',
+      );
+      final config = CoreConfig.build(options);
+      final outbound = (config['outbounds'] as List).firstWhere((e) => e['tag'] == group.tag);
+
+      expect(outbound['type'], 'urltest');
+      expect(outbound['outbounds'], ['HK', 'JP']);
+      expect((config['outbounds'] as List).first['outbounds'], contains(group.tag), reason: 'can be selected too');
+      expect((config['route']['rules'] as List).firstWhere((e) => e['domain_suffix'] != null)['outbound'], group.tag);
+    });
+
+    Map<String, dynamic> config(List<AutoGroup> groups, {List<RuleGroup> rules = const []}) => CoreConfig.build(CoreOptions(
+          nodes: _nodes,
+          autoGroups: groups,
+          groups: rules,
+          upstreamPort: 7891,
+          mitmPort: 9099,
+          clashPort: 9191,
+          clashSecret: 'secret',
+          ruleSetDirectory: 'rules',
+          cachePath: 'cache.db',
+        ));
+
+    Map<String, dynamic> outbound(Map<String, dynamic> built, String tag) =>
+        (built['outbounds'] as List).cast<Map<String, dynamic>>().firstWhere((e) => e['tag'] == tag);
+
+    test('an empty group is left out and rules pointing at it fall back', () {
+      final built = config([
+        AutoGroup(name: 'empty')
+      ], rules: [
+        RuleGroup(id: 'a', name: 'a', domainSuffixes: ['a.example'], target: 'auto:empty')
+      ]);
+
+      expect((built['outbounds'] as List).any((e) => e['tag'] == 'auto:empty'), isFalse);
+      expect((built['route']['rules'] as List).firstWhere((e) => e['domain_suffix'] != null)['outbound'], 'select');
+    });
+
+    test('a front group applies only inside the group, through copies of its nodes', () {
+      final built = config([
+        AutoGroup(name: 'exit', nodes: const ['HK'], front: 'entry'),
+        AutoGroup(name: 'entry', nodes: const ['JP']),
+      ]);
+
+      expect(outbound(built, 'auto:exit')['outbounds'], ['auto:exit/HK']);
+      expect(outbound(built, 'auto:exit/HK')['detour'], 'auto:entry');
+      expect(outbound(built, 'auto:exit/HK')['server'], 'h.example');
+      expect(outbound(built, 'HK').containsKey('detour'), isFalse);
+    });
+
+    test('a loop of front groups from an old backup is dropped, or the core would not start', () {
+      final built = config([
+        AutoGroup(name: 'a', nodes: const ['HK'], front: 'b'),
+        AutoGroup(name: 'b', nodes: const ['JP'], front: 'a'),
+      ]);
+
+      expect(outbound(built, 'auto:a')['outbounds'], ['HK']);
+      expect(outbound(built, 'auto:b')['outbounds'], ['JP']);
+    });
+
+    test('a front group with no members is ignored', () {
+      final built = config([
+        AutoGroup(name: 'a', nodes: const ['HK'], front: 'empty'),
+        AutoGroup(name: 'empty'),
+      ]);
+      expect(outbound(built, 'auto:a')['outbounds'], ['HK']);
+    });
+  });
+
+  group('auto select settings', () {
+    Map<String, dynamic> auto({int minutes = 480, int tolerance = 0, Set<String> favorites = const {}, int limit = 2000}) {
+      final config = CoreConfig.build(CoreOptions(
+        nodes: _nodes,
+        autoTestMinutes: minutes,
+        autoTolerance: tolerance,
+        autoFavorites: favorites,
+        autoNodeLimit: limit,
+        upstreamPort: 7891,
+        mitmPort: 9099,
+        clashPort: 9191,
+        clashSecret: 'secret',
+        ruleSetDirectory: 'rules',
+        cachePath: 'cache.db',
+      ));
+      return (config['outbounds'] as List).cast<Map<String, dynamic>>().firstWhere((e) => e['tag'] == 'auto');
+    }
+
+    test('the interval can never exceed idle_timeout, the core refuses that', () {
+      expect(auto(minutes: 480)['idle_timeout'], '480m');
+      expect(auto(minutes: 5)['interval'], '5m');
+      expect(auto(minutes: 5)['idle_timeout'], '30m');
+    });
+
+    test('zero tolerance is written as 1, because the core reads 0 as "use 50"', () {
+      expect(auto()['tolerance'], 1);
+      expect(auto(tolerance: 200)['tolerance'], 200);
+    });
+
+    test('favorites narrow the choice when there are any among the nodes', () {
+      expect(auto(favorites: {'JP'})['outbounds'], ['HK', 'JP'], reason: 'one favorite is not enough to pick from');
+    });
+
+    test('the node limit keeps the first ones', () {
+      expect(auto(limit: 2)['outbounds'], ['HK', 'JP']);
+    });
+  });
+
+  group('chain proxy', () {
+    const three = [
+      {'type': 'trojan', 'tag': 'A', 'server': 'a.example', 'server_port': 443, 'password': 'p'},
+      {'type': 'trojan', 'tag': 'B', 'server': 'b.example', 'server_port': 443, 'password': 'p'},
+      {'type': 'trojan', 'tag': 'C', 'server': 'c.example', 'server_port': 443, 'password': 'p'},
+      {'type': 'trojan', 'tag': 'D', 'server': 'd.example', 'server_port': 443, 'password': 'p'},
+    ];
+
+    Map<String, dynamic> build({List<String> chain = const ['A', 'B'], bool front = true, List<AutoGroup> groups = const []}) =>
+        CoreConfig.build(CoreOptions(
+          nodes: three,
+          chain: chain,
+          chainFront: front,
+          autoGroups: groups,
+          mixedPort: 7890,
+          upstreamPort: 7891,
+          mitmPort: 9099,
+          clashPort: 9191,
+          clashSecret: 'secret',
+          ruleSetDirectory: 'rules',
+          cachePath: 'cache.db',
+        ));
+
+    Map<String, dynamic> outbound(Map<String, dynamic> config, String tag) =>
+        (config['outbounds'] as List).cast<Map<String, dynamic>>().firstWhere((e) => e['tag'] == tag);
+
+    test('in front: every node sits behind the end of the chain', () {
+      final config = build();
+
+      expect(outbound(config, 'A').containsKey('detour'), isFalse);
+      expect(outbound(config, 'B')['detour'], 'A');
+      expect(outbound(config, 'C')['detour'], 'B');
+      expect(outbound(config, 'D')['detour'], 'B');
+      expect(config['route']['final'], 'select');
+    });
+
+    test('behind: traffic leaves through the last hop, which follows the selection', () {
+      final config = build(front: false);
+
+      expect(outbound(config, 'A')['detour'], 'select');
+      expect(outbound(config, 'B')['detour'], 'A');
+      expect(outbound(config, 'C').containsKey('detour'), isFalse);
+      expect(config['route']['final'], 'B');
+    });
+
+    test('behind: chain nodes leave every group that leads back to them', () {
+      final config = build(front: false, groups: [AutoGroup(name: 'g', keywords: const ['a', 'c'])]);
+
+      expect(outbound(config, 'select')['outbounds'], ['auto', 'auto:g', 'C', 'D', 'direct']);
+      expect(outbound(config, 'auto')['outbounds'], ['C', 'D']);
+      expect(outbound(config, 'auto:g')['outbounds'], ['C']);
+    });
+
+    test('nodes that are gone are skipped', () {
+      final config = build(chain: const ['gone', 'A']);
+      expect(outbound(config, 'A').containsKey('detour'), isFalse);
+      expect(outbound(config, 'C')['detour'], 'A');
+    });
+
+    test('no chain leaves the nodes alone', () {
+      expect(outbound(build(chain: const []), 'C').containsKey('detour'), isFalse);
+    });
+
+    test('a node with its own detour keeps it', () {
+      final config = CoreConfig.build(CoreOptions(
+        nodes: const [
+          {'type': 'trojan', 'tag': 'A', 'server': 'a.example', 'server_port': 443, 'password': 'p'},
+          {'type': 'trojan', 'tag': 'B', 'server': 'b.example', 'server_port': 443, 'password': 'p', 'detour': 'C'},
+          {'type': 'trojan', 'tag': 'C', 'server': 'c.example', 'server_port': 443, 'password': 'p'},
+        ],
+        chain: const ['A'],
+        upstreamPort: 7891,
+        mitmPort: 9099,
+        clashPort: 9191,
+        clashSecret: 'secret',
+        ruleSetDirectory: 'rules',
+        cachePath: 'cache.db',
+      ));
+      expect(outbound(config, 'B')['detour'], 'C');
+    });
+  });
+
   group('dns per group', () {
     final direct = RuleGroup(id: 'd', name: 'd', target: RuleTarget.direct, domainSuffixes: ['d.example'], dnsServer: 'udp://9.9.9.9');
     final node = RuleGroup(id: 'n', name: 'n', target: 'JP', domainSuffixes: ['n.example'], dnsServer: 'tls://9.9.9.10');
@@ -837,6 +1042,39 @@ void main() {
       ],
     );
     File('$directory/rule-groups.json').writeAsStringSync(jsonEncode(CoreConfig.build(options)));
+
+    const nodes = [
+      {'type': 'trojan', 'tag': 'A', 'server': 'a.example', 'server_port': 443, 'password': 'p'},
+      {'type': 'trojan', 'tag': 'B', 'server': 'b.example', 'server_port': 443, 'password': 'p'},
+      {'type': 'trojan', 'tag': 'C', 'server': 'c.example', 'server_port': 443, 'password': 'p'},
+      {'type': 'trojan', 'tag': 'D', 'server': 'd.example', 'server_port': 443, 'password': 'p'},
+    ];
+    for (final (name, front) in [('chain-front', true), ('chain-behind', false)]) {
+      final chained = CoreOptions(
+        nodes: nodes,
+        chain: const ['A', 'B'],
+        chainFront: front,
+        autoGroups: [
+          AutoGroup(name: 'exit', keywords: const ['C'], front: 'entry'),
+          AutoGroup(name: 'entry', nodes: const ['D']),
+          AutoGroup(name: 'all', keywords: const ['a', 'b', 'c', 'd']),
+        ],
+        autoTestMinutes: 5,
+        autoTolerance: 200,
+        finalTarget: 'auto:all',
+        groups: [
+          RuleGroup(id: 'a', name: 'a', target: 'auto:exit', domainSuffixes: ['a.example'], dnsServer: '8.8.8.8')
+        ],
+        mixedPort: 7890,
+        upstreamPort: 7891,
+        mitmPort: 9099,
+        clashPort: 9191,
+        clashSecret: 'secret',
+        ruleSetDirectory: 'rules',
+        cachePath: 'cache.db',
+      );
+      File('$directory/$name.json').writeAsStringSync(jsonEncode(CoreConfig.build(chained)));
+    }
   });
 }
 

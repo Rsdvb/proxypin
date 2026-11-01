@@ -348,6 +348,25 @@ class CoreSettings {
   /// 分流都没命中时的去向
   String finalTarget;
 
+  /// 链式代理经过的节点，从上到下
+  List<String> chain;
+
+  /// 链在当前节点前面：应用 -> 链 -> 当前节点。关闭时在后面：应用 -> 当前节点 -> 链
+  bool chainFront;
+  List<AutoGroup> autoGroups;
+
+  /// 自动选择多久测一次，单位分钟。手机上定时唤醒很耗电
+  int autoTestMinutes;
+
+  /// 新节点要快过当前节点这么多才切换，单位毫秒
+  int autoTolerance;
+
+  /// 有收藏时只在收藏里选
+  bool autoPreferFavorites;
+
+  /// 自动选择最多测这么多节点
+  int autoNodeLimit;
+
   /// 规则集多久更新一次，单位小时
   int ruleSetUpdateHours;
 
@@ -392,6 +411,13 @@ class CoreSettings {
     this.testUrl = 'https://www.gstatic.com/generate_204',
     List<RuleGroup>? groups,
     this.finalTarget = RuleTarget.selected,
+    List<String>? chain,
+    this.chainFront = true,
+    List<AutoGroup>? autoGroups,
+    this.autoTestMinutes = 480,
+    this.autoTolerance = 0,
+    this.autoPreferFavorites = false,
+    this.autoNodeLimit = 2000,
     this.ruleSetUpdateHours = 24,
     this.updateBundledRuleSets = false,
     this.ruleSetDownload = DownloadStrategy.preferProxy,
@@ -406,6 +432,8 @@ class CoreSettings {
         dns = dns ?? DnsSettings(),
         tunSettings = tunSettings ?? TunSettings(),
         bypassDomains = bypassDomains ?? [...defaultBypassDomains],
+        chain = chain ?? [],
+        autoGroups = autoGroups ?? [],
         userAgents = userAgents ?? [],
         deviceId = deviceId ?? _randomDeviceId(),
         groups = groups ?? RuleGroup.defaults(),
@@ -451,6 +479,13 @@ class CoreSettings {
         testUrl: json['testUrl'] ?? 'https://www.gstatic.com/generate_204',
         groups: (json['groups'] as List?)?.map((e) => RuleGroup.fromJson(e)).toList(),
         finalTarget: json['finalTarget'] ?? RuleTarget.selected,
+        chain: (json['chain'] as List?)?.map((e) => e.toString()).toList(),
+        chainFront: json['chainFront'] ?? true,
+        autoGroups: (json['autoGroups'] as List?)?.map((e) => AutoGroup.fromJson(e)).toList(),
+        autoTestMinutes: json['autoTestMinutes'] ?? 480,
+        autoTolerance: json['autoTolerance'] ?? 0,
+        autoPreferFavorites: json['autoPreferFavorites'] ?? false,
+        autoNodeLimit: json['autoNodeLimit'] ?? 2000,
         ruleSetUpdateHours: json['ruleSetUpdateHours'] ?? 24,
         updateBundledRuleSets: json['updateBundledRuleSets'] ?? false,
         ruleSetDownload: DownloadStrategy.values.asNameMap()[json['ruleSetDownload']] ?? DownloadStrategy.preferProxy,
@@ -489,6 +524,13 @@ class CoreSettings {
         'testUrl': testUrl,
         'groups': groups,
         'finalTarget': finalTarget,
+        'chain': chain,
+        'chainFront': chainFront,
+        'autoGroups': autoGroups,
+        'autoTestMinutes': autoTestMinutes,
+        'autoTolerance': autoTolerance,
+        'autoPreferFavorites': autoPreferFavorites,
+        'autoNodeLimit': autoNodeLimit,
         'ruleSetUpdateHours': ruleSetUpdateHours,
         'updateBundledRuleSets': updateBundledRuleSets,
         'ruleSetDownload': ruleSetDownload.name,

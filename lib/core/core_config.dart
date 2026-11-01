@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'clash_routing.dart';
 import 'core_settings.dart';
 import 'dns_catalog.dart';
@@ -25,6 +27,17 @@ class CoreOptions {
 
   /// 都没命中时的去向。[RuleTarget.selected] 时听机场规则的 MATCH
   final String finalTarget;
+
+  /// 链式代理经过的节点，从上到下。[chainFront] 决定它在当前节点的前面还是后面
+  final List<String> chain;
+  final bool chainFront;
+  final List<AutoGroup> autoGroups;
+  final int autoTestMinutes;
+  final int autoTolerance;
+
+  /// 自动选择只在这些节点里挑，空表示不限
+  final Set<String> autoFavorites;
+  final int autoNodeLimit;
 
   /// 配置自带的 DNS，优先用来解析节点域名
   final String? outboundDns;
@@ -77,6 +90,13 @@ class CoreOptions {
     this.providerRouting,
     this.providerRuleSets = const {},
     this.finalTarget = RuleTarget.selected,
+    this.chain = const [],
+    this.chainFront = true,
+    this.autoGroups = const [],
+    this.autoTestMinutes = 480,
+    this.autoTolerance = 0,
+    this.autoFavorites = const {},
+    this.autoNodeLimit = 2000,
     this.outboundDns,
     DnsSettings? dns,
     TunSettings? tunSettings,
@@ -155,13 +175,13 @@ class CoreConfig {
       };
 
   static Map<String, dynamic> build(CoreOptions options) {
-    final nodeTags = options.nodes.map((e) => e['tag'].toString()).toList();
+    final routes = _Routes.of(options);
     return {
       'log': {'level': options.logLevel, 'timestamp': false},
-      'dns': _dns(options),
+      'dns': _dns(options, routes),
       'inbounds': _inbounds(options),
-      'outbounds': _outbounds(options, nodeTags),
-      'route': _route(options, nodeTags),
+      'outbounds': _outbounds(options, routes),
+      'route': _route(options, routes),
       'experimental': {
         'clash_api': {
           'external_controller': '127.0.0.1:${options.clashPort}',
@@ -227,8 +247,8 @@ class CoreConfig {
     };
   }
 
-  static List<Map<String, dynamic>> _outbounds(CoreOptions options, List<String> nodeTags) {
-    final choices = [if (nodeTags.length > 1) _tagAuto, ...nodeTags, _tagDirect];
+  static List<Map<String, dynamic>> _outbounds(CoreOptions options, _Routes routes) {
+    final choices = [if (routes.hasAuto) _tagAuto, ...routes.groups.keys, ...routes.selectable, _tagDirect];
     final selected = options.selected;
     return [
       {
@@ -238,25 +258,28 @@ class CoreConfig {
         'default': selected != null && choices.contains(selected) ? selected : choices.first,
         'interrupt_exist_connections': true,
       },
-      if (nodeTags.length > 1)
-        {
-          'type': 'urltest',
-          'tag': _tagAuto,
-          'outbounds': nodeTags,
-          'url': options.testUrl,
-          // 空闲时不测速，手机上定时唤醒很耗电
-          'interval': '10m',
-          'idle_timeout': '30m',
-          'tolerance': 50,
-        },
-      ...options.nodes,
-      ...?options.providerRouting?.outbounds(nodeTags, testUrl: options.testUrl),
+      if (routes.hasAuto) _urlTest(_tagAuto, routes.autoMembers, options),
+      for (final MapEntry(key: tag, value: members) in routes.groups.entries) _urlTest(tag, members, options),
+      ...routes.outbounds,
+      ...?options.providerRouting?.outbounds(routes.nodeTags, testUrl: options.testUrl),
       {'type': 'direct', 'tag': _tagDirect},
       {'type': 'http', 'tag': _tagMitm, 'server': '127.0.0.1', 'server_port': options.mitmPort},
     ];
   }
 
-  static Map<String, dynamic> _dns(CoreOptions options) {
+  static Map<String, dynamic> _urlTest(String tag, List<String> members, CoreOptions options) => {
+        'type': 'urltest',
+        'tag': tag,
+        'outbounds': members,
+        'url': options.testUrl,
+        'interval': '${options.autoTestMinutes}m',
+        // 空闲时不测速，手机上定时唤醒很耗电。不能比测试间隔短，否则内核不接受
+        'idle_timeout': '${max(30, options.autoTestMinutes)}m',
+        // 内核把 0 当成没填，用它的默认值 50
+        'tolerance': max(1, options.autoTolerance),
+      };
+
+  static Map<String, dynamic> _dns(CoreOptions options, _Routes routes) {
     final dns = options.dns;
     final fakeIp = options.tun && dns.proxyResolve == ProxyResolve.fakeip;
     final mitmDomains = options.mitmDomains;
@@ -264,7 +287,6 @@ class CoreConfig {
     final subnet = dns.clientSubnet && dns.clientSubnetValue.isNotEmpty ? dns.clientSubnetValue : null;
     final ttl = dns.ttl;
     final finalServer = dns.proxyResolve == ProxyResolve.direct ? _dnsDirect : _dnsProxy;
-    final nodeTags = options.nodes.map((e) => e['tag'].toString()).toList();
 
     Map<String, dynamic> routeTo(String server, Map<String, dynamic> match) => {
           ...match,
@@ -292,12 +314,12 @@ class CoreConfig {
 
     return {
       'servers': [
-        server(dns.proxy, _dnsProxy, detour: _tagSelect),
+        server(dns.proxy, _dnsProxy, detour: routes.proxyTag),
         server(dns.direct, _dnsDirect),
         server(options.outboundDns ?? dns.outbound, _dnsOutbound),
         _dnsServer(_usable(dns.resolver, options), _dnsResolver),
         for (final MapEntry(key: group, value: tag) in groupServers.entries)
-          server(group.dnsServer, tag, detour: _outboundOf(group.target, nodeTags)),
+          server(group.dnsServer, tag, detour: _outboundOf(group.target, routes)),
         if (hosts.isNotEmpty) {'type': 'hosts', 'tag': _dnsHosts, 'predefined': hosts},
         if (fakeIp)
           {
@@ -404,7 +426,7 @@ class CoreConfig {
     };
   }
 
-  static Map<String, dynamic> _route(CoreOptions options, List<String> nodeTags) {
+  static Map<String, dynamic> _route(CoreOptions options, _Routes routes) {
     final enabled = options.groups.where((e) => e.enabled).toList();
     final provider = options.providerRouting;
     final ruleSets = {for (final group in enabled) ...group.ruleSets, ...options.providerRuleSets};
@@ -423,7 +445,7 @@ class CoreConfig {
           {
             'inbound': [_tagProbe],
             'action': 'route',
-            'outbound': _tagSelect,
+            'outbound': routes.proxyTag,
           },
         ],
         {'action': 'sniff'},
@@ -433,14 +455,14 @@ class CoreConfig {
         for (final mode in modes) {'clash_mode': mode, 'domain': _neverDomain, 'action': 'route', 'outbound': _tagDirect},
         for (final mode in [modeCaptureRule, modeCaptureGlobal]) ..._mitmRules(mode, frontDoors, options.mitmDomains),
         for (final mode in [modeGlobal, modeCaptureGlobal])
-          {'clash_mode': mode, 'action': 'route', 'outbound': _tagSelect},
+          {'clash_mode': mode, 'action': 'route', 'outbound': routes.proxyTag},
         if (options.dns.inboundDomainResolve && options.mixedPort > 0)
           {
             'inbound': [_tagMixed],
             'action': 'resolve',
           },
-        for (final group in enabled) ..._groupRule(group, nodeTags),
-        ...?provider?.routeRules(nodeTags, options.providerRuleSets, fallback: _tagSelect),
+        for (final group in enabled) ..._groupRule(group, routes),
+        ...?provider?.routeRules(routes.nodeTags, options.providerRuleSets, fallback: routes.proxyTag),
         // route.final 只能是 outbound，拦截要写成最后一条规则
         if (options.finalTarget == RuleTarget.block) {'action': 'reject'},
       ],
@@ -453,30 +475,30 @@ class CoreConfig {
             'path': '${options.ruleSetDirectory}/${RuleSets.fileName(name)}',
           },
       ],
-      'final': _final(options, nodeTags),
+      'final': _final(options, routes),
       'auto_detect_interface': true,
       'default_domain_resolver': {'server': _dnsOutbound},
     };
   }
 
   /// 用户选的兜底去向优先。没选时听机场的 MATCH 规则，它是拦截的话写不进 route.final，就还走选中的节点
-  static String _final(CoreOptions options, List<String> nodeTags) {
+  static String _final(CoreOptions options, _Routes routes) {
     final chosen = options.finalTarget;
-    if (chosen != RuleTarget.selected) return _outboundOf(chosen, nodeTags) ?? _tagSelect;
+    if (chosen != RuleTarget.selected) return _outboundOf(chosen, routes) ?? routes.proxyTag;
     final provider = options.providerRouting;
     final target = provider?.finalTarget;
-    if (target == null) return _tagSelect;
-    return provider!.action(target, nodeTags, fallback: _tagSelect)['outbound'] ?? _tagSelect;
+    if (target == null) return routes.proxyTag;
+    return provider!.action(target, routes.nodeTags, fallback: routes.proxyTag)['outbound'] ?? routes.proxyTag;
   }
 
   /// 去向对应的 outbound。拦截没有 outbound，返回 null
-  static String? _outboundOf(String target, List<String> nodeTags) {
+  static String? _outboundOf(String target, _Routes routes) {
     if (target == RuleTarget.block) return null;
     if (target == RuleTarget.direct) return _tagDirect;
-    if (target == RuleTarget.auto && nodeTags.length > 1) return _tagAuto;
-    if (nodeTags.contains(target)) return target;
-    // 节点可能在订阅更新后消失了
-    return _tagSelect;
+    if (target == RuleTarget.auto && routes.hasAuto) return _tagAuto;
+    if (routes.groups.containsKey(target) || routes.nodeTags.contains(target)) return target;
+    // 节点或组可能已经没了
+    return routes.proxyTag;
   }
 
   static List<Map<String, dynamic>> _mitmRules(String mode, List<String> frontDoors, List<String>? domains) {
@@ -494,8 +516,8 @@ class CoreConfig {
   }
 
   /// 内核的默认语义：域名和 IP 这一类里任一条命中，再和端口、协议、进程这些类别同时满足
-  static List<Map<String, dynamic>> _groupRule(RuleGroup group, List<String> nodeTags) {
-    final outbound = _outboundOf(group.target, nodeTags);
+  static List<Map<String, dynamic>> _groupRule(RuleGroup group, _Routes routes) {
+    final outbound = _outboundOf(group.target, routes);
     final action = outbound == null ? {'action': 'reject'} : {'action': 'route', 'outbound': outbound};
 
     final match = <String, dynamic>{
@@ -535,5 +557,90 @@ class CoreConfig {
     final trimmed = directory.replaceFirst(RegExp(r'[\\/]+$'), '');
     final escaped = trimmed.replaceAllMapped(RegExp(r'[.*+?^${}()|[\]\\]'), (match) => '\\${match[0]}');
     return '(?i)^$escaped[\\\\/]';
+  }
+}
+
+/// 这份配置里流量能走的路：节点、自动选择组和链式代理合在一起算出来
+class _Routes {
+  final List<String> nodeTags;
+
+  /// 链上还在的节点，从上到下
+  final List<String> chain;
+
+  /// 链在当前节点后面
+  final bool chainBehind;
+
+  /// 能放进“当前选择”和自动选择组的节点。
+  /// 链在后面时链上的节点要拿掉：它们前面接着当前选择，再放进去就成环了，内核起不来
+  final List<String> selectable;
+  final List<String> autoMembers;
+
+  /// 自定义自动选择组：tag -> 成员，没有成员的组不在这里
+  final Map<String, List<String>> groups;
+  final List<Map<String, dynamic>> outbounds;
+
+  _Routes(this.nodeTags, this.chain, this.chainBehind, this.selectable, this.autoMembers, this.groups, this.outbounds);
+
+  bool get hasAuto => autoMembers.length > 1;
+
+  /// 流量要走“当前选择”时用的 outbound。链在后面时要从链的最后一跳出去，它再接回当前选择
+  String get proxyTag => chainBehind ? chain.last : CoreConfig._tagSelect;
+
+  factory _Routes.of(CoreOptions options) {
+    final nodeTags = options.nodes.map((e) => e['tag'].toString()).toList();
+    final chain = options.chain.where(nodeTags.contains).toSet().toList();
+    final behind = chain.isNotEmpty && !options.chainFront;
+    final selectable = behind ? nodeTags.where((e) => !chain.contains(e)).toList() : nodeTags;
+
+    final nodes = [for (final node in options.nodes) _chained(node, chain, behind)];
+    final byTag = {for (final node in nodes) node['tag'].toString(): node};
+
+    final known = {for (final group in options.autoGroups) group.name: group};
+    final groups = <String, List<String>>{};
+    final copies = <Map<String, dynamic>>[];
+    for (final group in options.autoGroups) {
+      final members = group.membersIn(selectable);
+      if (members.isEmpty) continue;
+      final front = _usableFront(group, known, selectable);
+      if (front == null) {
+        groups[group.tag] = members;
+        continue;
+      }
+      // 前置只对这个组生效，所以用节点的副本，同一个节点在别处走的路不受影响
+      groups[group.tag] = [for (final member in members) '${group.tag}/$member'];
+      copies.addAll([
+        for (final member in members) {...byTag[member]!, 'tag': '${group.tag}/$member', 'detour': front.tag},
+      ]);
+    }
+
+    return _Routes(nodeTags, chain, behind, selectable, _autoMembers(options, selectable), groups, [...nodes, ...copies]);
+  }
+
+  static List<String> _autoMembers(CoreOptions options, List<String> selectable) {
+    final favorites = selectable.where(options.autoFavorites.contains).toList();
+    // 只有一个收藏时没得选，自动选择组也建不起来
+    final members = favorites.length < 2 ? selectable : favorites;
+    return members.length > options.autoNodeLimit ? members.sublist(0, options.autoNodeLimit) : members;
+  }
+
+  /// 内核要每个 outbound 知道自己前面一跳，所以链要倒过来写：
+  /// 链在前面时，每个节点接在链尾后面；链在后面时，链头接在当前选择后面
+  static Map<String, dynamic> _chained(Map<String, dynamic> node, List<String> chain, bool behind) {
+    if (chain.isEmpty) return node;
+    final tag = node['tag'].toString();
+    final index = chain.indexOf(tag);
+    if (index > 0) return {...node, 'detour': chain[index - 1]};
+    if (index == 0) return behind ? {...node, 'detour': CoreConfig._tagSelect} : node;
+    return behind || node.containsKey('detour') ? node : {...node, 'detour': chain.last};
+  }
+
+  /// 前置组成环的话内核起不来。界面上已经挡住了，这里防的是备份导入和改名留下的旧数据
+  static AutoGroup? _usableFront(AutoGroup group, Map<String, AutoGroup> known, List<String> tags) {
+    final seen = {group.name};
+    for (var next = known[group.front]; next != null; next = known[next.front]) {
+      if (!seen.add(next.name)) return null;
+    }
+    final front = known[group.front];
+    return front == null || front.membersIn(tags).isEmpty ? null : front;
   }
 }
