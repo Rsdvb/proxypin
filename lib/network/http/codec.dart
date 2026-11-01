@@ -302,9 +302,14 @@ abstract class HttpCodec<T extends HttpMessage> implements Codec<T, T>, CloseDel
     builder.addByte(HttpConstants.cr);
     builder.addByte(HttpConstants.lf);
 
-    //请求体
-    builder.add(body ?? Uint8List(0));
-    return builder.toBytes();
+    //请求体：头部和 body 一次写入，避免 body 在 builder 里扩容时被反复拷贝
+    final head = builder.takeBytes();
+    if (body == null || body.isEmpty) {
+      return head;
+    }
+    return Uint8List(head.length + body.length)
+      ..setAll(0, head)
+      ..setAll(head.length, body);
   }
 
   //读取起始行

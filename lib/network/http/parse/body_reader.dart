@@ -34,7 +34,8 @@ class Result {
 class BodyReader {
   final HttpMessage message;
 
-  final BytesBuilder _bodyBuffer = BytesBuilder();
+  // 读到的数据不会再被修改，暂存时不必拷贝，结束时合并一次即可
+  final BytesBuilder _bodyBuffer = BytesBuilder(copy: false);
 
   /// chunked 解码器，仅在 Transfer-Encoding: chunked 时创建；
   /// 内部自行处理 chunk-size 行、chunk 内容尾部 \r\n、chunk-extension、trailer
@@ -109,9 +110,7 @@ class BodyReader {
     }
 
     if (_done) {
-      var body = _bodyBuffer.toBytes();
-      _bodyBuffer.clear();
-      return Result(true, body: body);
+      return Result(true, body: _bodyBuffer.takeBytes());
     }
 
     return Result(false);
@@ -123,9 +122,7 @@ class BodyReader {
       return Result(false);
     }
     _done = true;
-    var body = _bodyBuffer.toBytes();
-    _bodyBuffer.clear();
-    return Result(true, body: body);
+    return Result(true, body: _bodyBuffer.takeBytes());
   }
 
   void _readFixedLengthContent(Uint8List data) {
