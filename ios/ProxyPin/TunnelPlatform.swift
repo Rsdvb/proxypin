@@ -44,9 +44,19 @@ final class TunnelPlatform: NSObject, LibboxPlatformInterfaceProtocol, LibboxCom
             if options.getDNSMode()!.value != LibboxDNSModeDisabled {
                 let servers = try options.getDNSServerAddress().toArray()
                 if !servers.isEmpty {
-                    settings.dnsSettings = NEDNSSettings(servers: servers)
+                    let dns = NEDNSSettings(servers: servers)
+                    // 没有默认路由时，系统不会把 DNS 交给隧道，要显式声明
+                    if !useDefaultRoute {
+                        dns.matchDomains = [""]
+                        dns.matchDomainsNoSearch = true
+                    }
+                    settings.dnsSettings = dns
                 }
             }
+        }
+
+        if options.isHTTPProxyEnabled() {
+            settings.proxySettings = proxySettings(options)
         }
 
         networkSettings = settings
@@ -61,6 +71,31 @@ final class TunnelPlatform: NSObject, LibboxPlatformInterfaceProtocol, LibboxCom
             throw TunnelError("missing tunnel file descriptor")
         }
         result.pointee = descriptor
+    }
+
+    /// 关闭“默认路由”时用这组子网路由代替，覆盖范围相同，但系统不把它当作默认路由
+    private var useDefaultRoute: Bool {
+        let configuration = (tunnel.protocolConfiguration as? NETunnelProviderProtocol)?.providerConfiguration
+        return configuration?["defaultRoute"] as? Bool ?? true
+    }
+
+    private func proxySettings(_ options: LibboxTunOptionsProtocol) -> NEProxySettings {
+        let settings = NEProxySettings()
+        let server = NEProxyServer(address: options.getHTTPProxyServer(), port: Int(options.getHTTPProxyServerPort()))
+        settings.httpServer = server
+        settings.httpsServer = server
+        settings.httpEnabled = true
+        settings.httpsEnabled = true
+
+        let bypass = options.getHTTPProxyBypassDomain()!.toArray()
+        if !bypass.isEmpty {
+            settings.exceptionList = bypass
+        }
+        let match = options.getHTTPProxyMatchDomain()!.toArray()
+        if !match.isEmpty {
+            settings.matchDomains = match
+        }
+        return settings
     }
 
     private func ipv4Settings(_ options: LibboxTunOptionsProtocol) throws -> NEIPv4Settings {
@@ -80,7 +115,21 @@ final class TunnelPlatform: NSObject, LibboxPlatformInterfaceProtocol, LibboxCom
             let prefix = routeIterator.next()!
             routes.append(NEIPv4Route(destinationAddress: prefix.address(), subnetMask: prefix.mask()))
         }
-        result.includedRoutes = routes.isEmpty ? [NEIPv4Route.default()] : routes
+        if routes.isEmpty {
+            routes = useDefaultRoute
+                ? [NEIPv4Route.default()]
+                : [
+                    NEIPv4Route(destinationAddress: "1.0.0.0", subnetMask: "255.0.0.0"),
+                    NEIPv4Route(destinationAddress: "2.0.0.0", subnetMask: "254.0.0.0"),
+                    NEIPv4Route(destinationAddress: "4.0.0.0", subnetMask: "252.0.0.0"),
+                    NEIPv4Route(destinationAddress: "8.0.0.0", subnetMask: "248.0.0.0"),
+                    NEIPv4Route(destinationAddress: "16.0.0.0", subnetMask: "240.0.0.0"),
+                    NEIPv4Route(destinationAddress: "32.0.0.0", subnetMask: "224.0.0.0"),
+                    NEIPv4Route(destinationAddress: "64.0.0.0", subnetMask: "192.0.0.0"),
+                    NEIPv4Route(destinationAddress: "128.0.0.0", subnetMask: "128.0.0.0"),
+                ]
+        }
+        result.includedRoutes = routes
 
         var excluded: [NEIPv4Route] = []
         let excludeIterator = options.getInet4RouteExcludeAddress()!
@@ -109,7 +158,21 @@ final class TunnelPlatform: NSObject, LibboxPlatformInterfaceProtocol, LibboxCom
             let prefix = routeIterator.next()!
             routes.append(NEIPv6Route(destinationAddress: prefix.address(), networkPrefixLength: NSNumber(value: prefix.prefix())))
         }
-        result.includedRoutes = routes.isEmpty ? [NEIPv6Route.default()] : routes
+        if routes.isEmpty {
+            routes = useDefaultRoute
+                ? [NEIPv6Route.default()]
+                : [
+                    NEIPv6Route(destinationAddress: "100::", networkPrefixLength: 8),
+                    NEIPv6Route(destinationAddress: "200::", networkPrefixLength: 7),
+                    NEIPv6Route(destinationAddress: "400::", networkPrefixLength: 6),
+                    NEIPv6Route(destinationAddress: "800::", networkPrefixLength: 5),
+                    NEIPv6Route(destinationAddress: "1000::", networkPrefixLength: 4),
+                    NEIPv6Route(destinationAddress: "2000::", networkPrefixLength: 3),
+                    NEIPv6Route(destinationAddress: "4000::", networkPrefixLength: 2),
+                    NEIPv6Route(destinationAddress: "8000::", networkPrefixLength: 1),
+                ]
+        }
+        result.includedRoutes = routes
 
         var excluded: [NEIPv6Route] = []
         let excludeIterator = options.getInet6RouteExcludeAddress()!
@@ -230,7 +293,7 @@ final class TunnelPlatform: NSObject, LibboxPlatformInterfaceProtocol, LibboxCom
     // MARK: Fixed answers on iOS
 
     func underNetworkExtension() -> Bool { true }
-    func includeAllNetworks() -> Bool { false }
+    func includeAllNetworks() -> Bool { tunnel.protocolConfiguration.includeAllNetworks }
     func usePlatformAutoDetectControl() -> Bool { false }
     func autoDetectControl(_: Int32) throws {}
     func usePlatformShell() -> Bool { false }

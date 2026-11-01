@@ -31,7 +31,10 @@ class _RuleGroupsPageState extends State<RuleGroupsPage> {
 
   @override
   void dispose() {
-    if (_changed) _manager.saveGroups(_groups);
+    if (_changed) {
+      _manager.settings.groups = _groups;
+      _manager.applySettings();
+    }
     super.dispose();
   }
 
@@ -105,6 +108,8 @@ class _RuleGroupsPageState extends State<RuleGroupsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final settings = _manager.settings;
+    final visible = settings.hideDisabledGroups ? _groups.where((e) => e.enabled).toList() : _groups;
     return Scaffold(
       appBar: AppBar(title: const Text('分流'), actions: [
         IconButton(tooltip: '添加分流组', icon: const Icon(Icons.add), onPressed: () => _edit(null)),
@@ -118,15 +123,47 @@ class _RuleGroupsPageState extends State<RuleGroupsPage> {
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
           child: Text('从上到下匹配，都没有命中时跟随选中的节点。长按拖动调整顺序。', style: Theme.of(context).textTheme.bodySmall),
         ),
+        ExpansionTile(
+          title: const Text('分流开关'),
+          tilePadding: const EdgeInsets.symmetric(horizontal: 16),
+          children: [
+            SwitchListTile(
+              title: const Text('隐藏未启用的分流规则'),
+              value: settings.hideDisabledGroups,
+              onChanged: (value) {
+                setState(() => settings.hideDisabledGroups = value);
+                _manager.saveUiSettings();
+              },
+            ),
+            SwitchListTile(
+              title: const Text('私有网络直连'),
+              value: settings.privateDirect,
+              onChanged: (value) => _change(() => settings.privateDirect = value),
+            ),
+            SwitchListTile(
+              title: const Text('禁用机场分流规则'),
+              value: !settings.providerRulesEnabled,
+              onChanged: (value) => _change(() => settings.providerRulesEnabled = !value),
+            ),
+            SwitchListTile(
+              title: const Text('自定义分流组'),
+              value: settings.groupsEnabled,
+              onChanged: (value) => _change(() => settings.groupsEnabled = value),
+            ),
+          ],
+        ),
         Expanded(
           child: ReorderableListView.builder(
-            itemCount: _groups.length,
+            itemCount: visible.length,
             onReorder: (oldIndex, newIndex) => _change(() {
-              final item = _groups.removeAt(oldIndex);
-              _groups.insert(newIndex > oldIndex ? newIndex - 1 : newIndex, item);
+              final target = visible[newIndex > oldIndex ? newIndex - 1 : newIndex];
+              final item = visible[oldIndex];
+              _groups
+                ..remove(item)
+                ..insert(_groups.indexOf(target) + (newIndex > oldIndex ? 1 : 0), item);
             }),
             itemBuilder: (context, index) {
-              final group = _groups[index];
+              final group = visible[index];
               final theme = Theme.of(context);
               return ListTile(
                 key: ValueKey(group.id),

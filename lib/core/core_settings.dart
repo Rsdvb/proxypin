@@ -6,6 +6,273 @@ import 'core_config.dart';
 import 'profile.dart';
 import 'rule_group.dart';
 
+/// IPv6 策略，默认关闭：节点没有 IPv6 时开着反而容易连不上
+enum IpStrategy { ipv4Only, preferIpv4, preferIpv6, ipv6Only }
+
+/// 代理流量的域名怎么解析
+enum ProxyResolve {
+  /// 不真正解析，由节点解析。快，但断开后应用可能要重启，且只对 TUN 入站生效
+  fakeip,
+
+  /// 通过当前节点连接 DNS 服务器解析
+  proxy,
+
+  /// 直连 DNS 服务器解析
+  direct,
+}
+
+class DnsSettings {
+  static const String defaultProxy = 'https://1.1.1.1/dns-query';
+
+  /// 解析 DNS 服务器自身域名用的 DNS
+  String resolver;
+
+  /// 解析节点域名用的 DNS
+  String outbound;
+
+  /// 直连流量用的 DNS
+  String direct;
+
+  /// 代理流量用的 DNS
+  String proxy;
+  ProxyResolve proxyResolve;
+
+  /// 改写返回的 TTL（秒），空表示保持原样
+  int? ttl;
+
+  /// 按分流组决定域名用哪个 DNS
+  bool enableRule;
+
+  /// 直连 DNS 带上本机网段（ECS），让 CDN 返回就近的地址
+  bool clientSubnet;
+
+  /// 上次测到的本机网段，空表示还不知道
+  String clientSubnetValue;
+  DateTime? clientSubnetUpdatedAt;
+
+  /// 代理端口进来的域名先解析，才能命中基于 IP 的分流规则
+  bool inboundDomainResolve;
+  bool staticIp;
+  Map<String, List<String>> staticIps;
+
+  /// 常见 DNS 服务器的域名用内置地址，防止它们自己被污染
+  bool staticIpForResolver;
+
+  /// 测延迟时解析的域名
+  String testDomain;
+
+  /// 用户自己加的 DNS 服务器
+  List<Map<String, dynamic>> custom;
+
+  DnsSettings({
+    this.resolver = 'local',
+    this.outbound = 'local',
+    this.direct = 'local',
+    this.proxy = defaultProxy,
+    this.proxyResolve = ProxyResolve.fakeip,
+    this.ttl,
+    this.enableRule = false,
+    this.clientSubnet = true,
+    this.clientSubnetValue = '',
+    this.clientSubnetUpdatedAt,
+    this.inboundDomainResolve = false,
+    this.staticIp = false,
+    Map<String, List<String>>? staticIps,
+    this.staticIpForResolver = true,
+    this.testDomain = 'gstatic.com',
+    List<Map<String, dynamic>>? custom,
+  })  : staticIps = staticIps ?? {},
+        custom = custom ?? [];
+
+  factory DnsSettings.fromJson(Map<String, dynamic> json) => DnsSettings(
+        resolver: json['resolver'] ?? 'local',
+        outbound: json['outbound'] ?? 'local',
+        direct: json['direct'] ?? 'local',
+        proxy: json['proxy'] ?? defaultProxy,
+        proxyResolve: ProxyResolve.values.asNameMap()[json['proxyResolve']] ?? ProxyResolve.fakeip,
+        ttl: json['ttl'],
+        enableRule: json['enableRule'] ?? false,
+        clientSubnet: json['clientSubnet'] ?? true,
+        clientSubnetValue: json['clientSubnetValue'] ?? '',
+        clientSubnetUpdatedAt: json['clientSubnetUpdatedAt'] == null
+            ? null
+            : DateTime.fromMillisecondsSinceEpoch(json['clientSubnetUpdatedAt']),
+        inboundDomainResolve: json['inboundDomainResolve'] ?? false,
+        staticIp: json['staticIp'] ?? false,
+        staticIps: (json['staticIps'] as Map?)?.map(
+            (key, value) => MapEntry(key.toString(), (value as List).map((e) => e.toString()).toList())),
+        staticIpForResolver: json['staticIpForResolver'] ?? true,
+        testDomain: json['testDomain'] ?? 'gstatic.com',
+        custom: (json['custom'] as List?)?.map((e) => Map<String, dynamic>.from(e)).toList(),
+      );
+
+  Map<String, dynamic> toJson() => {
+        'resolver': resolver,
+        'outbound': outbound,
+        'direct': direct,
+        'proxy': proxy,
+        'proxyResolve': proxyResolve.name,
+        'ttl': ttl,
+        'enableRule': enableRule,
+        'clientSubnet': clientSubnet,
+        'clientSubnetValue': clientSubnetValue,
+        'clientSubnetUpdatedAt': clientSubnetUpdatedAt?.millisecondsSinceEpoch,
+        'inboundDomainResolve': inboundDomainResolve,
+        'staticIp': staticIp,
+        'staticIps': staticIps,
+        'staticIpForResolver': staticIpForResolver,
+        'testDomain': testDomain,
+        'custom': custom,
+      };
+}
+
+class TunSettings {
+  static const String defaultIpv4 = '172.19.0.1/30';
+  static const String defaultIpv6 = 'fdfe:dcba:9876::1/126';
+
+  /// 网络栈。iOS 只能用 gvisor
+  String stack;
+  int udpTimeoutSeconds;
+  String ipv4Address;
+  String ipv6Address;
+  String loopbackAddress;
+  int mtu;
+
+  /// Windows：自动设置路由
+  bool autoRoute;
+
+  /// 开启后其他设备可能连不上这台设备的共享
+  bool strictRoute;
+
+  /// 接管发往 TUN 的 DNS 请求，由内核按规则解析
+  bool hijackDns;
+
+  /// 总开关：排除地址段的流量不进 TUN
+  bool routeExclude;
+  bool routeExcludeTun;
+  bool routeExcludeMulticast;
+
+  /// iOS：排除默认路由的一小段，状态栏就不显示 VPN 图标。开 IPv6 时无效
+  bool hideVpn;
+  List<String> routeExcludeAddresses;
+
+  /// iOS：使用默认路由。关闭后用一组子网路由代替
+  bool defaultRoute;
+  bool includeAllNetworks;
+  bool excludeLocalNetworks;
+  bool excludeCellularServices;
+  bool excludeApns;
+  bool excludeDeviceCommunication;
+  bool enforceRoutes;
+
+  /// iOS：同时设置 HTTP 代理，一些 App 绕过虚拟网卡时还能接住
+  bool appendHttpProxy;
+
+  TunSettings({
+    this.stack = 'gvisor',
+    this.udpTimeoutSeconds = 300,
+    this.ipv4Address = defaultIpv4,
+    this.ipv6Address = defaultIpv6,
+    this.loopbackAddress = '',
+    this.mtu = 4064,
+    this.autoRoute = true,
+    this.strictRoute = false,
+    this.hijackDns = true,
+    this.routeExclude = true,
+    bool? routeExcludeTun,
+    this.routeExcludeMulticast = false,
+    this.hideVpn = false,
+    List<String>? routeExcludeAddresses,
+    this.defaultRoute = true,
+    this.includeAllNetworks = false,
+    this.excludeLocalNetworks = false,
+    this.excludeCellularServices = false,
+    this.excludeApns = false,
+    this.excludeDeviceCommunication = false,
+    this.enforceRoutes = false,
+    this.appendHttpProxy = true,
+  })  : routeExcludeTun = routeExcludeTun ?? Platform.isWindows,
+        routeExcludeAddresses = routeExcludeAddresses ?? [];
+
+  factory TunSettings.fromJson(Map<String, dynamic> json) => TunSettings(
+        stack: json['stack'] ?? 'gvisor',
+        udpTimeoutSeconds: json['udpTimeoutSeconds'] ?? 300,
+        ipv4Address: json['ipv4Address'] ?? defaultIpv4,
+        ipv6Address: json['ipv6Address'] ?? defaultIpv6,
+        loopbackAddress: json['loopbackAddress'] ?? '',
+        mtu: json['mtu'] ?? 4064,
+        autoRoute: json['autoRoute'] ?? true,
+        strictRoute: json['strictRoute'] ?? false,
+        hijackDns: json['hijackDns'] ?? true,
+        routeExclude: json['routeExclude'] ?? true,
+        routeExcludeTun: json['routeExcludeTun'],
+        routeExcludeMulticast: json['routeExcludeMulticast'] ?? false,
+        hideVpn: json['hideVpn'] ?? false,
+        routeExcludeAddresses: (json['routeExcludeAddresses'] as List?)?.map((e) => e.toString()).toList(),
+        defaultRoute: json['defaultRoute'] ?? true,
+        includeAllNetworks: json['includeAllNetworks'] ?? false,
+        excludeLocalNetworks: json['excludeLocalNetworks'] ?? false,
+        excludeCellularServices: json['excludeCellularServices'] ?? false,
+        excludeApns: json['excludeApns'] ?? false,
+        excludeDeviceCommunication: json['excludeDeviceCommunication'] ?? false,
+        enforceRoutes: json['enforceRoutes'] ?? false,
+        appendHttpProxy: json['appendHttpProxy'] ?? true,
+      );
+
+  Map<String, dynamic> toJson() => {
+        'stack': stack,
+        'udpTimeoutSeconds': udpTimeoutSeconds,
+        'ipv4Address': ipv4Address,
+        'ipv6Address': ipv6Address,
+        'loopbackAddress': loopbackAddress,
+        'mtu': mtu,
+        'autoRoute': autoRoute,
+        'strictRoute': strictRoute,
+        'hijackDns': hijackDns,
+        'routeExclude': routeExclude,
+        'routeExcludeTun': routeExcludeTun,
+        'routeExcludeMulticast': routeExcludeMulticast,
+        'hideVpn': hideVpn,
+        'routeExcludeAddresses': routeExcludeAddresses,
+        'defaultRoute': defaultRoute,
+        'includeAllNetworks': includeAllNetworks,
+        'excludeLocalNetworks': excludeLocalNetworks,
+        'excludeCellularServices': excludeCellularServices,
+        'excludeApns': excludeApns,
+        'excludeDeviceCommunication': excludeDeviceCommunication,
+        'enforceRoutes': enforceRoutes,
+        'appendHttpProxy': appendHttpProxy,
+      };
+
+  /// 掩码限制在 /24-/30，没写掩码时用 /30。不合法返回 null
+  static String? normalizeIpv4(String text) {
+    final match = RegExp(r'^(\d{1,3}(?:\.\d{1,3}){3})(?:/(\d{1,2}))?$').firstMatch(text.trim());
+    if (match == null) return null;
+    if (match.group(1)!.split('.').any((e) => int.parse(e) > 255)) return null;
+    final mask = (int.tryParse(match.group(2) ?? '') ?? 30).clamp(24, 30);
+    return '${match.group(1)}/$mask';
+  }
+
+  /// 掩码限制在 /64-/126，没写掩码时用 /126。不合法返回 null
+  static String? normalizeIpv6(String text) {
+    final parts = text.trim().split('/');
+    if (parts.length > 2 || InternetAddress.tryParse(parts.first)?.type != InternetAddressType.IPv6) return null;
+    final mask = (int.tryParse(parts.length == 2 ? parts[1] : '') ?? 126).clamp(64, 126);
+    return '${parts.first}/$mask';
+  }
+
+  /// iOS 隧道启动时要交给系统的选项，只在建立连接时生效
+  Map<String, Object> get tunnelOptions => {
+        'defaultRoute': defaultRoute,
+        'includeAllNetworks': includeAllNetworks,
+        'excludeLocalNetworks': excludeLocalNetworks,
+        'excludeCellularServices': excludeCellularServices,
+        'excludeApns': excludeApns,
+        'excludeDeviceCommunication': excludeDeviceCommunication,
+        'enforceRoutes': enforceRoutes,
+      };
+}
+
 /// 连接相关的设置
 class CoreSettings {
   String? activeProfileId;
@@ -41,10 +308,18 @@ class CoreSettings {
 
   /// 启动 App 时自动连接
   bool autoConnect;
-  bool fakeIp;
-  bool ipv6;
-  String remoteDns;
-  String directDns;
+  IpStrategy ipStrategy;
+  DnsSettings dns;
+  TunSettings tunSettings;
+
+  /// 私有网络直连
+  bool privateDirect;
+
+  /// 总开关：是否使用分流组
+  bool groupsEnabled;
+
+  /// 分流页隐藏未启用的组
+  bool hideDisabledGroups;
   String testUrl;
   List<RuleGroup> groups;
   int mixedPort;
@@ -68,10 +343,12 @@ class CoreSettings {
     this.systemProxy = true,
     this.systemProxyActive = false,
     this.autoConnect = false,
-    this.fakeIp = true,
-    this.ipv6 = true,
-    this.remoteDns = 'https://1.1.1.1/dns-query',
-    this.directDns = 'local',
+    this.ipStrategy = IpStrategy.ipv4Only,
+    DnsSettings? dns,
+    TunSettings? tunSettings,
+    this.privateDirect = true,
+    this.groupsEnabled = true,
+    this.hideDisabledGroups = false,
     this.testUrl = 'https://www.gstatic.com/generate_204',
     List<RuleGroup>? groups,
     this.mixedPort = 17890,
@@ -80,6 +357,8 @@ class CoreSettings {
     String? clashSecret,
   })  : selectedNodes = selectedNodes ?? {},
         favorites = favorites ?? {},
+        dns = dns ?? DnsSettings(),
+        tunSettings = tunSettings ?? TunSettings(),
         userAgents = userAgents ?? [],
         deviceId = deviceId ?? _randomDeviceId(),
         groups = groups ?? RuleGroup.defaults(),
@@ -112,10 +391,12 @@ class CoreSettings {
         systemProxy: json['systemProxy'] ?? true,
         systemProxyActive: json['systemProxyActive'] ?? false,
         autoConnect: json['autoConnect'] ?? false,
-        fakeIp: json['fakeIp'] ?? true,
-        ipv6: json['ipv6'] ?? true,
-        remoteDns: json['remoteDns'] ?? 'https://1.1.1.1/dns-query',
-        directDns: json['directDns'] ?? 'local',
+        ipStrategy: IpStrategy.values.asNameMap()[json['ipStrategy']] ?? IpStrategy.ipv4Only,
+        dns: json['dns'] == null ? null : DnsSettings.fromJson(json['dns']),
+        tunSettings: json['tunSettings'] == null ? null : TunSettings.fromJson(json['tunSettings']),
+        privateDirect: json['privateDirect'] ?? true,
+        groupsEnabled: json['groupsEnabled'] ?? true,
+        hideDisabledGroups: json['hideDisabledGroups'] ?? false,
         testUrl: json['testUrl'] ?? 'https://www.gstatic.com/generate_204',
         groups: (json['groups'] as List?)?.map((e) => RuleGroup.fromJson(e)).toList(),
         mixedPort: json['mixedPort'] ?? 17890,
@@ -140,10 +421,12 @@ class CoreSettings {
         'systemProxy': systemProxy,
         'systemProxyActive': systemProxyActive,
         'autoConnect': autoConnect,
-        'fakeIp': fakeIp,
-        'ipv6': ipv6,
-        'remoteDns': remoteDns,
-        'directDns': directDns,
+        'ipStrategy': ipStrategy.name,
+        'dns': dns,
+        'tunSettings': tunSettings,
+        'privateDirect': privateDirect,
+        'groupsEnabled': groupsEnabled,
+        'hideDisabledGroups': hideDisabledGroups,
         'testUrl': testUrl,
         'groups': groups,
         'mixedPort': mixedPort,

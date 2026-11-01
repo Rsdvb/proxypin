@@ -87,7 +87,7 @@ final class ImportLinks {
             case "takeLink":
                 result(ImportLinks.shared.take())
             case "start":
-                VpnManager.shared.start(finish)
+                VpnManager.shared.start(call.arguments as? [String: Any] ?? [:], finish)
             case "stop":
                 VpnManager.shared.disconnect()
                 result(nil)

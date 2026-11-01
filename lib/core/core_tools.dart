@@ -27,6 +27,53 @@ class CheckResult {
 class CoreTools {
   static const Duration _timeout = Duration(seconds: 8);
 
+  /// 本机公网 IPv4 的 /24 网段，给 ECS 用。失败返回 null，下次再试
+  static Future<String?> clientSubnet() async {
+    try {
+      final body = await _body('https://www.cloudflare.com/cdn-cgi/trace', null, (text) => text).timeout(_timeout);
+      final match = RegExp(r'^ip=(\d+)\.(\d+)\.(\d+)\.\d+$', multiLine: true).firstMatch(body);
+      return match == null ? null : '${match.group(1)}.${match.group(2)}.${match.group(3)}.0/24';
+    } on Exception {
+      return null;
+    }
+  }
+
+  /// 连接 DNS 服务器要多久（毫秒），不通时返回 null。[proxyPort] 不为空时经节点连接，
+  /// 测的是连接耗时，不是一次完整查询：内核没有开放单独查询某个服务器的接口
+  static Future<int?> dnsLatency(String url, {int? proxyPort}) async {
+    final uri = Uri.tryParse(url.contains('://') ? url : 'udp://$url');
+    if (uri == null || uri.host.isEmpty) return null;
+    final port = uri.hasPort
+        ? uri.port
+        : switch (uri.scheme) {
+            'tls' || 'quic' => 853,
+            'https' || 'h3' => 443,
+            _ => 53,
+          };
+
+    final stopwatch = Stopwatch()..start();
+    Socket? socket;
+    try {
+      if (proxyPort == null) {
+        socket = await Socket.connect(uri.host, port, timeout: _dnsTimeout);
+      } else {
+        socket = await Socket.connect(InternetAddress.loopbackIPv4, proxyPort, timeout: _dnsTimeout);
+        final host = uri.host.contains(':') ? '[${uri.host}]' : uri.host;
+        socket.write('CONNECT $host:$port HTTP/1.1\r\nHost: $host:$port\r\n\r\n');
+        await socket.flush();
+        final reply = await socket.first.timeout(_dnsTimeout);
+        if (!latin1.decode(reply.take(16).toList()).contains(' 200')) return null;
+      }
+      return stopwatch.elapsedMilliseconds;
+    } on Exception {
+      return null;
+    } finally {
+      socket?.destroy();
+    }
+  }
+
+  static const Duration _dnsTimeout = Duration(seconds: 3);
+
   /// 问内核一个域名会走哪条规则。sing-box 没有这样的接口，也读不了二进制规则集，
   /// 所以真的发起一条连接，再看内核给它记的规则，结果和实际上网时一致。
   static Future<RuleMatch?> matchRule(ClashApi api, int proxyPort, String domain, {int port = 443}) async {

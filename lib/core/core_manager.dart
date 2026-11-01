@@ -11,7 +11,9 @@ import 'core_backup.dart';
 import 'core_config.dart';
 import 'core_platform.dart';
 import 'core_settings.dart';
+import 'core_tools.dart';
 import 'device_identity.dart';
+import 'dns_catalog.dart';
 import 'import_link.dart';
 import 'profile.dart';
 import 'profile_parser.dart';
@@ -69,6 +71,9 @@ class CoreManager extends ChangeNotifier {
   final bool alwaysTun;
   final ClashApi Function(int port, String secret) _apiFactory;
 
+  /// 查本机公网网段，测试时替换
+  final Future<String?> Function() clientSubnetLookup;
+
   CoreSettings settings = CoreSettings();
   List<Profile> profiles = [];
   CoreState state = CoreState.stopped;
@@ -97,7 +102,9 @@ class CoreManager extends ChangeNotifier {
     required this.loadRuleSet,
     this.alwaysTun = false,
     ClashApi Function(int port, String secret)? apiFactory,
-  }) : _apiFactory = apiFactory ?? ((port, secret) => ClashApi(port: port, secret: secret));
+    Future<String?> Function()? clientSubnetLookup,
+  })  : _apiFactory = apiFactory ?? ((port, secret) => ClashApi(port: port, secret: secret)),
+        clientSubnetLookup = clientSubnetLookup ?? CoreTools.clientSubnet;
 
   bool get isRunning => state == CoreState.running;
 
@@ -227,8 +234,9 @@ class CoreManager extends ChangeNotifier {
     _setState(CoreState.starting);
     await _transition(() async {
       try {
+        await _refreshClientSubnet();
         await _writeConfig();
-        await platform.start();
+        await platform.start(_tun ? settings.tunSettings.tunnelOptions : const {});
         await _afterStart();
         _setState(CoreState.running);
       } catch (e) {
@@ -365,8 +373,14 @@ class CoreManager extends ChangeNotifier {
       providerRouting: routing,
       providerRuleSets: routing == null ? const {} : await _installRuleSets(rules, routing.ruleSets),
       outboundDns: dns,
+      dns: settings.dns,
+      tunSettings: settings.tunSettings,
+      ipStrategy: settings.ipStrategy,
+      privateDirect: settings.privateDirect,
+      avoidLocalDns: _tun && Platform.isWindows,
       tun: _tun,
-      mixedPort: alwaysTun ? 0 : settings.mixedPort,
+      // iOS 上只有附加 HTTP 代理时才需要这个端口
+      mixedPort: alwaysTun && !settings.tunSettings.appendHttpProxy ? 0 : settings.mixedPort,
       upstreamPort: settings.upstreamPort,
       mitmPort: mitm.port,
       mitmDomains: mitm.domains,
@@ -375,10 +389,6 @@ class CoreManager extends ChangeNotifier {
       clashDefaultMode: CoreConfig.modeRule,
       ruleSetDirectory: rules.path,
       cachePath: await platform.cachePath(),
-      directDns: settings.directDns,
-      remoteDns: settings.remoteDns,
-      fakeIp: settings.fakeIp,
-      ipv6: settings.ipv6,
       testUrl: settings.testUrl,
     );
     await File('${directory.path}/config.json').writeAsString(jsonEncode(CoreConfig.build(options)), flush: true);
@@ -388,6 +398,7 @@ class CoreManager extends ChangeNotifier {
   /// 把用到的规则集放到内核读得到的位置。缺文件的规则集不能写进配置，否则内核起不来
   Future<List<RuleGroup>> _usableGroups(Directory directory) async {
     final usable = <RuleGroup>[];
+    if (!settings.groupsEnabled) return usable;
     for (final group in settings.groups) {
       if (!group.enabled) continue;
       final available = await _installRuleSets(directory, group.ruleSets);
@@ -732,10 +743,13 @@ class CoreManager extends ChangeNotifier {
       ..groups = restored.groups
       ..mode = restored.mode
       ..systemProxy = restored.systemProxy
-      ..fakeIp = restored.fakeIp
-      ..ipv6 = restored.ipv6
-      ..remoteDns = restored.remoteDns
-      ..directDns = restored.directDns
+      ..ipStrategy = restored.ipStrategy
+      ..dns = restored.dns
+      ..tunSettings = restored.tunSettings
+      ..privateDirect = restored.privateDirect
+      ..groupsEnabled = restored.groupsEnabled
+      ..hideDisabledGroups = restored.hideDisabledGroups
+      ..providerRulesEnabled = restored.providerRulesEnabled
       ..testUrl = restored.testUrl;
     mitm.editableDomains = backup.decryptDomains;
     delays.clear();
@@ -753,26 +767,31 @@ class CoreManager extends ChangeNotifier {
     await store.saveSettings(settings);
   }
 
-  /// 空值保留原设置：这些字段没有填空的合理含义，填错了内核会起不来
-  Future<void> saveAdvanced({
-    required String remoteDns,
-    required String directDns,
-    required String testUrl,
-    required bool fakeIp,
-    required bool ipv6,
-    bool? tun,
-    bool? autoConnect,
-  }) async {
-    if (remoteDns.isNotEmpty) settings.remoteDns = remoteDns;
-    if (directDns.isNotEmpty) settings.directDns = directDns;
-    if (testUrl.isNotEmpty) settings.testUrl = testUrl;
-    settings
-      ..fakeIp = fakeIp
-      ..ipv6 = ipv6
-      ..tun = tun ?? settings.tun
-      ..autoConnect = autoConnect ?? settings.autoConnect;
+  /// 只影响界面的设置，不用重载内核
+  Future<void> saveUiSettings() => store.saveSettings(settings);
+
+  /// 设置页改完后调用。运行中会重载内核，所以页面都是离开时才保存一次
+  Future<void> applySettings() async {
     await store.saveSettings(settings);
+    await _refreshClientSubnet();
     await _applyConfig();
     notifyListeners();
+  }
+
+  static const Duration _clientSubnetMaxAge = Duration(days: 1);
+
+  /// 本机网段一天测一次。直连 DNS 是系统 DNS 时不需要
+  Future<void> _refreshClientSubnet() async {
+    final dns = settings.dns;
+    if (!dns.clientSubnet || dns.direct == DnsCatalog.local) return;
+    final updated = dns.clientSubnetUpdatedAt;
+    if (updated != null && DateTime.now().difference(updated) < _clientSubnetMaxAge) return;
+
+    final subnet = await clientSubnetLookup();
+    if (subnet == null) return;
+    dns
+      ..clientSubnetValue = subnet
+      ..clientSubnetUpdatedAt = DateTime.now();
+    await store.saveSettings(settings);
   }
 }

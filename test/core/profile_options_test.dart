@@ -54,7 +54,7 @@ class _Platform implements CorePlatform {
   Future<bool> isRunning() async => false;
 
   @override
-  Future<void> start() async => calls.add('start');
+  Future<void> start([Map<String, Object> options = const {}]) async => calls.add('start');
 
   @override
   Future<void> reload() async => calls.add('reload');

@@ -142,7 +142,7 @@ class _ConnectView extends StatelessWidget {
               ),
             ListTile(
               title: const Text('更多'),
-              subtitle: const Text('连接、测速、备份、高级设置'),
+              subtitle: const Text('连接、测速、DNS、TUN、备份、高级设置'),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => _open(context, MorePage(configuration: proxyServer.configuration)),
             ),

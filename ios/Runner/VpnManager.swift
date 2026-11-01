@@ -82,7 +82,7 @@ class VpnManager {
         return url
     }
 
-    func start(_ completion: @escaping (Error?) -> Void) {
+    func start(_ options: [String: Any] = [:], _ completion: @escaping (Error?) -> Void) {
         NETunnelProviderManager.loadAllFromPreferences { [weak self] managers, error in
             if let error {
                 completion(error)
@@ -92,6 +92,7 @@ class VpnManager {
             let configuration = (manager.protocolConfiguration as? NETunnelProviderProtocol) ?? NETunnelProviderProtocol()
             configuration.providerBundleIdentifier = Self.tunnelBundleId
             configuration.serverAddress = "RsProxy"
+            Self.apply(options, to: configuration)
             manager.protocolConfiguration = configuration
             manager.localizedDescription = "RsProxy"
             manager.isEnabled = true
@@ -117,6 +118,23 @@ class VpnManager {
                 }
             }
         }
+    }
+
+    /// 这些选项由系统执行，改了要重新连接才生效
+    private static func apply(_ options: [String: Any], to configuration: NETunnelProviderProtocol) {
+        func flag(_ name: String) -> Bool { options[name] as? Bool ?? false }
+
+        configuration.includeAllNetworks = flag("includeAllNetworks")
+        configuration.excludeLocalNetworks = flag("excludeLocalNetworks")
+        configuration.enforceRoutes = flag("enforceRoutes")
+        if #available(iOS 16.4, *) {
+            configuration.excludeCellularServices = flag("excludeCellularServices")
+            configuration.excludeAPNs = flag("excludeApns")
+        }
+        if #available(iOS 17.4, *) {
+            configuration.excludeDeviceCommunication = flag("excludeDeviceCommunication")
+        }
+        configuration.providerConfiguration = ["defaultRoute": options["defaultRoute"] as? Bool ?? true]
     }
 
     func connect(host _: String?, port _: Int?, ipProxy _: Bool?) {

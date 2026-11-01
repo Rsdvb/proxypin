@@ -1,4 +1,6 @@
 import 'clash_routing.dart';
+import 'core_settings.dart';
+import 'dns_catalog.dart';
 import 'rule_group.dart';
 import 'share_link.dart';
 
@@ -20,8 +22,17 @@ class CoreOptions {
   /// 机场规则里可用的规则集
   final Set<String> providerRuleSets;
 
-  /// 解析节点域名用的 DNS，空表示用直连 DNS
+  /// 配置自带的 DNS，优先用来解析节点域名
   final String? outboundDns;
+  final DnsSettings dns;
+  final TunSettings tunSettings;
+  final IpStrategy ipStrategy;
+
+  /// 私有网络直连
+  final bool privateDirect;
+
+  /// Windows TUN 下不能用系统 DNS：系统把请求发回 TUN，就绕回来了（sing-box#1592）
+  final bool avoidLocalDns;
 
   /// iOS 走 TUN；Windows 默认走本地代理，也可以开 TUN
   final bool tun;
@@ -46,20 +57,21 @@ class CoreOptions {
   final String ruleSetDirectory;
   final String cachePath;
 
-  final String directDns;
-  final String remoteDns;
-  final bool fakeIp;
-  final bool ipv6;
   final String testUrl;
   final String logLevel;
 
-  const CoreOptions({
+  CoreOptions({
     required this.nodes,
     this.selected,
     this.groups = const [],
     this.providerRouting,
     this.providerRuleSets = const {},
     this.outboundDns,
+    DnsSettings? dns,
+    TunSettings? tunSettings,
+    this.ipStrategy = IpStrategy.ipv4Only,
+    this.privateDirect = true,
+    this.avoidLocalDns = false,
     this.tun = false,
     this.mixedPort = 0,
     required this.upstreamPort,
@@ -70,13 +82,12 @@ class CoreOptions {
     this.clashDefaultMode = 'Rule',
     required this.ruleSetDirectory,
     required this.cachePath,
-    this.directDns = 'local',
-    this.remoteDns = 'https://1.1.1.1/dns-query',
-    this.fakeIp = true,
-    this.ipv6 = true,
     this.testUrl = 'https://www.gstatic.com/generate_204',
     this.logLevel = 'warn',
-  });
+  })  : dns = dns ?? DnsSettings(),
+        tunSettings = tunSettings ?? TunSettings();
+
+  bool get ipv6 => ipStrategy != IpStrategy.ipv4Only;
 }
 
 /// 把节点、分流组和解密名单组装成 sing-box 配置。
@@ -95,16 +106,22 @@ class CoreConfig {
   static const String _tagTun = 'tun-in';
   static const String _tagMixed = 'mixed-in';
   static const String _tagUpstream = 'upstream-in';
-  static const String _dnsRemote = 'dns-remote';
+  static const String _dnsProxy = 'dns-proxy';
   static const String _dnsDirect = 'dns-direct';
   static const String _dnsFakeIp = 'dns-fakeip';
   static const String _dnsOutbound = 'dns-outbound';
+  static const String _dnsResolver = 'dns-resolver';
+  static const String _dnsHosts = 'dns-hosts';
+
+  /// [CoreOptions.avoidLocalDns] 时代替系统 DNS
+  static const String _fallbackLocalDns = 'udp://223.6.6.6';
 
   static const String modeRule = 'Rule';
   static const String modeGlobal = 'Global';
   static const String modeCaptureRule = 'CaptureRule';
   static const String modeCaptureGlobal = 'CaptureGlobal';
   static const List<String> modes = [modeRule, modeGlobal, modeCaptureRule, modeCaptureGlobal];
+  static const List<String> _neverDomain = ['rsproxy.invalid'];
 
   /// 模式写成 clash mode，规则和全局、解密开和关都不用重载，已有连接不受影响。
   ///
@@ -138,18 +155,41 @@ class CoreConfig {
   }
 
   static List<Map<String, dynamic>> _inbounds(CoreOptions options) => [
-        if (options.tun)
-          {
-            'type': 'tun',
-            'tag': _tagTun,
-            'address': ['172.19.0.1/30', if (options.ipv6) 'fdfe:dcba:9876::1/126'],
-            'auto_route': true,
-            'strict_route': true,
-          },
+        if (options.tun) _tun(options),
         if (options.mixedPort > 0)
           {'type': 'mixed', 'tag': _tagMixed, 'listen': '127.0.0.1', 'listen_port': options.mixedPort},
         {'type': 'mixed', 'tag': _tagUpstream, 'listen': '127.0.0.1', 'listen_port': options.upstreamPort},
       ];
+
+  static Map<String, dynamic> _tun(CoreOptions options) {
+    final tun = options.tunSettings;
+    final addresses = [tun.ipv4Address, if (options.ipv6) tun.ipv6Address];
+    final excluded = [
+      if (tun.routeExclude) ...[
+        if (tun.routeExcludeTun) ...addresses,
+        if (tun.routeExcludeMulticast) ...['224.0.0.0/4', if (options.ipv6) 'ff00::/8'],
+        // 排除默认路由的开头一小段，系统就认为默认路由不在隧道里，不显示 VPN 图标
+        if (tun.hideVpn) ...['0.0.0.0/31', if (options.ipv6) '::/127'],
+        ...tun.routeExcludeAddresses,
+      ],
+    ];
+    return {
+      'type': 'tun',
+      'tag': _tagTun,
+      'address': addresses,
+      'mtu': tun.mtu,
+      'stack': tun.stack,
+      'auto_route': tun.autoRoute,
+      if (tun.strictRoute) 'strict_route': true,
+      'udp_timeout': '${tun.udpTimeoutSeconds}s',
+      if (tun.loopbackAddress.isNotEmpty) 'loopback_address': [tun.loopbackAddress],
+      if (excluded.isNotEmpty) 'route_exclude_address': excluded,
+      if (tun.appendHttpProxy && options.mixedPort > 0)
+        'platform': {
+          'http_proxy': {'enabled': true, 'server': '127.0.0.1', 'server_port': options.mixedPort},
+        },
+    };
+  }
 
   static List<Map<String, dynamic>> _outbounds(CoreOptions options, List<String> nodeTags) {
     final choices = [if (nodeTags.length > 1) _tagAuto, ...nodeTags, _tagDirect];
@@ -181,14 +221,39 @@ class CoreConfig {
   }
 
   static Map<String, dynamic> _dns(CoreOptions options) {
-    final china = options.groups.any((e) => e.ruleSets.contains('geosite-cn'));
-    final fakeIp = options.tun && options.fakeIp;
+    final dns = options.dns;
+    final fakeIp = options.tun && dns.proxyResolve == ProxyResolve.fakeip;
     final mitmDomains = options.mitmDomains;
+    final enabled = options.groups.where((e) => e.enabled).toList();
+    final subnet = dns.clientSubnet && dns.clientSubnetValue.isNotEmpty ? dns.clientSubnetValue : null;
+    final ttl = dns.ttl;
+    final finalServer = dns.proxyResolve == ProxyResolve.direct ? _dnsDirect : _dnsProxy;
+
+    Map<String, dynamic> toDirect(Map<String, dynamic> match) => {
+          ...match,
+          'action': 'route',
+          'server': _dnsDirect,
+          if (subnet != null) 'client_subnet': subnet,
+          if (ttl != null) 'rewrite_ttl': ttl,
+        };
+
+    final hosts = <String, List<String>>{
+      if (dns.staticIpForResolver) ...DnsCatalog.knownHosts,
+      if (dns.staticIp) ...dns.staticIps,
+    };
+
+    Map<String, dynamic> server(String url, String tag, {String? detour}) {
+      return _dnsServer(_usable(url, options), tag,
+          detour: detour, resolver: hosts.containsKey(Uri.tryParse(url)?.host) ? _dnsHosts : _dnsResolver);
+    }
+
     return {
       'servers': [
-        _dnsServer(options.remoteDns, _dnsRemote, detour: _tagSelect),
-        _dnsServer(options.directDns, _dnsDirect),
-        if (options.outboundDns != null) _dnsServer(options.outboundDns!, _dnsOutbound),
+        server(dns.proxy, _dnsProxy, detour: _tagSelect),
+        server(dns.direct, _dnsDirect),
+        server(options.outboundDns ?? dns.outbound, _dnsOutbound),
+        _dnsServer(_usable(dns.resolver, options), _dnsResolver),
+        if (hosts.isNotEmpty) {'type': 'hosts', 'tag': _dnsHosts, 'predefined': hosts},
         if (fakeIp)
           {
             'type': 'fakeip',
@@ -198,6 +263,8 @@ class CoreConfig {
           },
       ],
       'rules': [
+        if (dns.staticIp && dns.staticIps.isNotEmpty)
+          {'domain': dns.staticIps.keys.toList(), 'action': 'route', 'server': _dnsHosts},
         // HTTPS 记录里的 ECH 会把真实域名藏起来，解密的域名不能让客户端拿到它
         if (mitmDomains != null && mitmDomains.isNotEmpty)
           {
@@ -206,39 +273,73 @@ class CoreConfig {
             'action': 'predefined',
             'rcode': 'NOERROR',
           },
-        if (china) {'rule_set': 'geosite-cn', 'action': 'route', 'server': _dnsDirect},
+        if (dns.enableRule)
+          ..._dnsGroupRules(enabled, toDirect)
+        else if (enabled.any((e) => e.ruleSets.contains('geosite-cn')))
+          toDirect({'rule_set': 'geosite-cn'}),
         if (fakeIp)
           {
             'query_type': ['A', 'AAAA'],
             'action': 'route',
             'server': _dnsFakeIp,
           },
+        if (ttl != null) {'action': 'route', 'server': finalServer, 'rewrite_ttl': ttl},
       ],
-      'final': _dnsRemote,
-      'strategy': options.ipv6 ? 'prefer_ipv4' : 'ipv4_only',
+      'final': finalServer,
+      'strategy': switch (options.ipStrategy) {
+        IpStrategy.ipv4Only => 'ipv4_only',
+        IpStrategy.preferIpv4 => 'prefer_ipv4',
+        IpStrategy.preferIpv6 => 'prefer_ipv6',
+        IpStrategy.ipv6Only => 'ipv6_only',
+      },
     };
   }
 
-  /// [server] 取值：local、1.1.1.1（UDP）、https://host/path、tls://host
-  static Map<String, dynamic> _dnsServer(String server, String tag, {String? detour}) {
-    final Map<String, dynamic> result;
-    if (server == 'local') {
-      result = {'type': 'local', 'tag': tag};
-    } else if (server.contains('://')) {
-      final uri = Uri.parse(server);
-      result = {
-        'type': uri.scheme,
-        'tag': tag,
-        'server': uri.host,
-        if (uri.hasPort) 'server_port': uri.port,
-        if (uri.path.isNotEmpty && uri.path != '/') 'path': uri.path,
+  /// 分流组决定域名用哪个 DNS。走节点的组不用单独写，落到后面的 FakeIP 或代理 DNS 就对了。
+  /// geoip 规则集不能用于 DNS：解析之前还没有 IP
+  static List<Map<String, dynamic>> _dnsGroupRules(
+      List<RuleGroup> groups, Map<String, dynamic> Function(Map<String, dynamic>) toDirect) {
+    final rules = <Map<String, dynamic>>[];
+    for (final group in groups) {
+      final geosites = group.ruleSets.where((e) => e.startsWith('geosite-')).toList();
+      final match = <String, dynamic>{
+        if (geosites.isNotEmpty) 'rule_set': geosites,
+        if (group.domains.isNotEmpty) 'domain': group.domains,
+        if (group.domainSuffixes.isNotEmpty) 'domain_suffix': group.domainSuffixes,
+        if (group.domainKeywords.isNotEmpty) 'domain_keyword': group.domainKeywords,
+        if (group.domainRegexes.isNotEmpty) 'domain_regex': group.domainRegexes,
       };
-    } else {
-      result = {'type': 'udp', 'tag': tag, 'server': server};
+      if (match.isEmpty) continue;
+      if (group.target == RuleTarget.direct) {
+        rules.add(toDirect(match));
+      } else if (group.target == RuleTarget.block) {
+        rules.add({...match, 'action': 'predefined', 'rcode': 'NXDOMAIN'});
+      }
     }
-    // 本机 DNS 不走节点，所以 local 不加 detour
-    if (detour != null && server != 'local') result['detour'] = detour;
-    return result;
+    return rules;
+  }
+
+  static String _usable(String url, CoreOptions options) =>
+      options.avoidLocalDns && (url == DnsCatalog.local || url == DnsCatalog.dhcp) ? _fallbackLocalDns : url;
+
+  /// [server] 取值：local、dhcp://auto、1.1.1.1、udp://、tcp://、tls://、https://、h3://、quic://。
+  /// 地址是域名时要先解析，[resolver] 指定用哪个 DNS
+  static Map<String, dynamic> _dnsServer(String server, String tag, {String? detour, String? resolver}) {
+    if (server == DnsCatalog.local) return {'type': 'local', 'tag': tag};
+    if (server == DnsCatalog.dhcp) return {'type': 'dhcp', 'tag': tag};
+    if (!server.contains('://')) return {'type': 'udp', 'tag': tag, 'server': server};
+
+    final uri = Uri.parse(server);
+    final named = DnsServer('', server).usesHostName;
+    return {
+      'type': uri.scheme,
+      'tag': tag,
+      'server': uri.host,
+      if (uri.hasPort) 'server_port': uri.port,
+      if (uri.path.isNotEmpty && uri.path != '/' && uri.path != '/dns-query') 'path': uri.path,
+      if (detour != null) 'detour': detour,
+      if (named && resolver != null) 'domain_resolver': resolver,
+    };
   }
 
   static Map<String, dynamic> _route(CoreOptions options, List<String> nodeTags) {
@@ -250,13 +351,18 @@ class CoreConfig {
     return {
       'rules': [
         {'action': 'sniff'},
-        {'protocol': 'dns', 'action': 'hijack-dns'},
-        {'ip_is_private': true, 'action': 'route', 'outbound': _tagDirect},
-        // sing-box 只接受规则里出现过的模式，其他名字会被悄悄忽略。这几条本身不起作用，只为声明模式
-        for (final mode in modes) {'clash_mode': mode, 'ip_is_private': true, 'action': 'route', 'outbound': _tagDirect},
+        if (options.tun && options.tunSettings.hijackDns) {'protocol': 'dns', 'action': 'hijack-dns'},
+        if (options.privateDirect) {'ip_is_private': true, 'action': 'route', 'outbound': _tagDirect},
+        // sing-box 只接受规则里出现过的模式，其他名字会被悄悄忽略。这几条匹配不到任何流量，只为声明模式
+        for (final mode in modes) {'clash_mode': mode, 'domain': _neverDomain, 'action': 'route', 'outbound': _tagDirect},
         for (final mode in [modeCaptureRule, modeCaptureGlobal]) ..._mitmRules(mode, frontDoors, options.mitmDomains),
         for (final mode in [modeGlobal, modeCaptureGlobal])
           {'clash_mode': mode, 'action': 'route', 'outbound': _tagSelect},
+        if (options.dns.inboundDomainResolve && options.mixedPort > 0)
+          {
+            'inbound': [_tagMixed],
+            'action': 'resolve',
+          },
         for (final group in enabled) ..._groupRule(group, nodeTags),
         ...?provider?.routeRules(nodeTags, options.providerRuleSets, fallback: _tagSelect),
       ],
@@ -271,7 +377,7 @@ class CoreConfig {
       ],
       'final': _final(provider, nodeTags),
       'auto_detect_interface': true,
-      'default_domain_resolver': {'server': options.outboundDns != null ? _dnsOutbound : _dnsDirect},
+      'default_domain_resolver': {'server': _dnsOutbound},
     };
   }
 

@@ -17,7 +17,7 @@ void main() {
               {'tag': '香港', 'server_port': 1}
             ])
           ],
-          CoreSettings(activeProfileId: '1', remoteDns: 'https://dns.example/q', clashSecret: 'device-secret', groups: [
+          CoreSettings(activeProfileId: '1', dns: DnsSettings(proxy: 'https://dns.example/q'), clashSecret: 'device-secret', groups: [
             RuleGroup(id: 'a', name: '自定义', domainSuffixes: ['a.example'], target: 'direct')
           ]),
           const ['example.com'],
@@ -29,7 +29,7 @@ void main() {
       expect(restored.profiles.single.name, '机场');
       expect(restored.profiles.single.nodes.single['tag'], '香港');
       expect(restored.settings.activeProfileId, '1');
-      expect(restored.settings.remoteDns, 'https://dns.example/q');
+      expect(restored.settings.dns.proxy, 'https://dns.example/q');
       expect(restored.settings.groups.single.domainSuffixes, ['a.example']);
       expect(restored.decryptDomains, ['example.com']);
     });

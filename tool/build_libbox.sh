@@ -9,7 +9,7 @@ set -euo pipefail
 version="$1"
 output="$(cd "$2" && pwd)"
 gomobile_version=v0.1.13
-tags=with_gvisor,with_quic,with_wireguard,with_utls,with_clash_api,with_low_memory,badlinkname,tfogo_checklinkname0,grpcnotrace
+tags=with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_clash_api,with_low_memory,badlinkname,tfogo_checklinkname0,grpcnotrace
 
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT

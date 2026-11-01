@@ -33,8 +33,8 @@ abstract class CorePlatform {
   /// 内核现在是否在运行。iOS 上 App 重开时隧道可能一直在跑
   Future<bool> isRunning();
 
-  /// 配置已写到 [directory] 下的 config.json
-  Future<void> start();
+  /// 配置已写到 [directory] 下的 config.json。[options] 是只在建立连接时生效的系统选项
+  Future<void> start([Map<String, Object> options = const {}]);
 
   Future<void> reload();
 
@@ -90,7 +90,7 @@ class IosCorePlatform implements CorePlatform {
   Future<bool> isRunning() async => _parse(await _channel.invokeMethod('state')) == CoreState.running;
 
   @override
-  Future<void> start() => _channel.invokeMethod('start');
+  Future<void> start([Map<String, Object> options = const {}]) => _channel.invokeMethod('start', options);
 
   @override
   Future<void> reload() => _channel.invokeMethod('reload');
@@ -162,7 +162,7 @@ class WindowsCorePlatform implements CorePlatform {
       executable ?? '${File(Platform.resolvedExecutable).parent.path}${Platform.pathSeparator}sing-box.exe';
 
   @override
-  Future<void> start() async {
+  Future<void> start([Map<String, Object> options = const {}]) async {
     if (_process != null) return;
     final working = await directory();
     _states.add(CoreState.starting);

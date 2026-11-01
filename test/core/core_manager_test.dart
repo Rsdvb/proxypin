@@ -42,7 +42,7 @@ class _Platform implements CorePlatform {
   Future<bool> isRunning() async => running;
 
   @override
-  Future<void> start() async {
+  Future<void> start([Map<String, Object> options = const {}]) async {
     calls.add('start');
     if (startError != null) throw startError!;
     running = true;
@@ -168,14 +168,19 @@ void main() {
       expect(platform.calls, ['start', 'mode:Rule', 'unwatch', 'keepAlive:false', 'detach', 'systemProxy:17890']);
     });
 
-    test('with TUN there is no system proxy and no local port', () async {
+    test('with TUN there is no system proxy, and the local port only serves the HTTP proxy', () async {
       manager = build(alwaysTun: true);
       await manager.load();
       await manager.connect();
 
       expect(platform.calls, isNot(contains('systemProxy:17890')));
       final inbounds = (writtenConfig()['inbounds'] as List).map((e) => e['tag']);
-      expect(inbounds, ['tun-in', 'upstream-in']);
+      expect(inbounds, ['tun-in', 'mixed-in', 'upstream-in']);
+
+      await manager.disconnect();
+      manager.settings.tunSettings.appendHttpProxy = false;
+      await manager.connect();
+      expect((writtenConfig()['inbounds'] as List).map((e) => e['tag']), ['tun-in', 'upstream-in']);
     });
 
     test('a failed start reports why and stops cleanly', () async {
@@ -552,14 +557,6 @@ void main() {
     final next = build();
     await next.load();
     expect(next.settings.favorites, {'香港 01'});
-  });
-
-  test('blank advanced fields keep what was there', () async {
-    await manager.saveAdvanced(remoteDns: '', directDns: '223.5.5.5', testUrl: '', fakeIp: false, ipv6: false);
-
-    expect(manager.settings.remoteDns, 'https://1.1.1.1/dns-query');
-    expect(manager.settings.directDns, '223.5.5.5');
-    expect(manager.settings.fakeIp, isFalse);
   });
 
   test('settings use a secret of their own on each install', () {

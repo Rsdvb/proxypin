@@ -32,7 +32,7 @@ class _Platform implements CorePlatform {
   Future<bool> isRunning() async => false;
 
   @override
-  Future<void> start() async {}
+  Future<void> start([Map<String, Object> options = const {}]) async {}
 
   @override
   Future<void> reload() async {}
