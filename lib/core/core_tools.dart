@@ -64,41 +64,25 @@ class CoreTools {
     }
   }
 
-  /// 连接 DNS 服务器要多久（毫秒），不通时返回 null。[proxyPort] 不为空时经节点连接，
-  /// 测的是连接耗时，不是一次完整查询：内核没有开放单独查询某个服务器的接口
-  static Future<int?> dnsLatency(String url, {int? proxyPort}) async {
-    final uri = Uri.tryParse(url.contains('://') ? url : 'udp://$url');
-    if (uri == null || uri.host.isEmpty) return null;
-    final port = uri.hasPort
-        ? uri.port
-        : switch (uri.scheme) {
-            'tls' || 'quic' => 853,
-            'https' || 'h3' => 443,
-            _ => 53,
-          };
-
-    final stopwatch = Stopwatch()..start();
-    Socket? socket;
-    try {
-      if (proxyPort == null) {
-        socket = await Socket.connect(uri.host, port, timeout: _dnsTimeout);
-      } else {
-        socket = await Socket.connect(InternetAddress.loopbackIPv4, proxyPort, timeout: _dnsTimeout);
-        final host = uri.host.contains(':') ? '[${uri.host}]' : uri.host;
-        socket.write('CONNECT $host:$port HTTP/1.1\r\nHost: $host:$port\r\n\r\n');
-        await socket.flush();
-        final reply = await socket.first.timeout(_dnsTimeout);
-        if (!latin1.decode(reply.take(16).toList()).contains(' 200')) return null;
-      }
-      return stopwatch.elapsedMilliseconds;
-    } on Exception {
-      return null;
-    } finally {
-      socket?.destroy();
+  /// 把内核的报错翻译成用户能处理的话，认不出来的原样给出最后一行
+  static String describeFailure(String log) {
+    final clean = log.replaceAll(RegExp(r'\x1B\[[0-9;]*m'), '').trim();
+    final text = clean.toLowerCase();
+    if (text.contains('address already in use') || text.contains('only one usage of each socket address')) {
+      final port = RegExp(r'listen \w+ [^\s]*:(\d+)').firstMatch(clean)?.group(1);
+      return '端口${port == null ? '' : ' $port '}被其他程序占用，请关闭它或换一个端口';
     }
+    if (text.contains('wintun') || text.contains('failed to setup adapter')) {
+      return 'TUN 网卡创建失败。请确认以管理员身份运行，没有其他 TUN 软件在用，还不行就重启电脑';
+    }
+    if (text.contains('access is denied') || text.contains('requires elevation')) {
+      return 'TUN 模式需要管理员权限，请以管理员身份重新启动 RsProxy';
+    }
+    if (text.contains('rule-set')) return '规则集读取失败，请到分流页的规则集里重新更新：${_lastLine(clean)}';
+    return clean.isEmpty ? '内核意外退出' : _lastLine(clean);
   }
 
-  static const Duration _dnsTimeout = Duration(seconds: 3);
+  static String _lastLine(String text) => text.split('\n').last.replaceFirst(RegExp(r'^(FATAL|ERROR)\[\d+\]\s*'), '').trim();
 
   /// 问内核一个域名会走哪条规则。sing-box 没有这样的接口，也读不了二进制规则集，
   /// 所以真的发起一条连接，再看内核给它记的规则，结果和实际上网时一致。

@@ -28,6 +28,7 @@ class CoreBackup {
     'mixedPort',
     'upstreamPort',
     'clashPort',
+    'probePort',
     'capture',
     'tun',
     'systemProxyActive',

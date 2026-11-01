@@ -63,7 +63,7 @@ class _Platform implements CorePlatform {
   Future<void> stop() async => calls.add('stop');
 
   @override
-  Future<void> setSystemProxy(int? port) async {}
+  Future<void> setSystemProxy(int? port, {List<String> bypass = const []}) async {}
 
   @override
   Future<void> setKeepAlive(bool enabled) async {}
@@ -73,6 +73,9 @@ class _Platform implements CorePlatform {
 
   @override
   Future<void> unwatchCapture() async {}
+
+  @override
+  Future<String?> lastFailure() async => null;
 }
 
 class _Mitm implements MitmHost {

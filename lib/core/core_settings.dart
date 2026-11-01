@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'core_config.dart';
+import 'dns_catalog.dart';
 import 'profile.dart';
 import 'rule_group.dart';
 
@@ -23,6 +24,9 @@ enum ProxyResolve {
 
 class DnsSettings {
   static const String defaultProxy = 'https://1.1.1.1/dns-query';
+  static const String defaultTestDomain = 'gstatic.com';
+  static const int minTtl = 5;
+  static const int maxTtl = 365 * 86400;
 
   /// 解析 DNS 服务器自身域名用的 DNS
   String resolver;
@@ -79,10 +83,16 @@ class DnsSettings {
     this.staticIp = false,
     Map<String, List<String>>? staticIps,
     this.staticIpForResolver = true,
-    this.testDomain = 'gstatic.com',
+    this.testDomain = defaultTestDomain,
     List<Map<String, dynamic>>? custom,
   })  : staticIps = staticIps ?? {},
         custom = custom ?? [];
+
+  /// 自定义服务器的地址能不能用。[DnsCatalog.schemes] 之外的写法内核不认，会起不来
+  static bool isValidServer(String url) {
+    final uri = Uri.tryParse(url);
+    return uri != null && !url.contains(' ') && uri.host.isNotEmpty && DnsCatalog.schemes.contains(uri.scheme);
+  }
 
   factory DnsSettings.fromJson(Map<String, dynamic> json) => DnsSettings(
         resolver: json['resolver'] ?? 'local',
@@ -90,7 +100,7 @@ class DnsSettings {
         direct: json['direct'] ?? 'local',
         proxy: json['proxy'] ?? defaultProxy,
         proxyResolve: ProxyResolve.values.asNameMap()[json['proxyResolve']] ?? ProxyResolve.fakeip,
-        ttl: json['ttl'],
+        ttl: (json['ttl'] as int?)?.clamp(minTtl, maxTtl),
         enableRule: json['enableRule'] ?? false,
         clientSubnet: json['clientSubnet'] ?? true,
         clientSubnetValue: json['clientSubnetValue'] ?? '',
@@ -99,11 +109,15 @@ class DnsSettings {
             : DateTime.fromMillisecondsSinceEpoch(json['clientSubnetUpdatedAt']),
         inboundDomainResolve: json['inboundDomainResolve'] ?? false,
         staticIp: json['staticIp'] ?? false,
-        staticIps: (json['staticIps'] as Map?)?.map(
-            (key, value) => MapEntry(key.toString(), (value as List).map((e) => e.toString()).toList())),
+        staticIps: (json['staticIps'] as Map?)
+            ?.map((key, value) => MapEntry(key.toString(), (value as List).map((e) => e.toString()).toList()))
+          ?..removeWhere((_, addresses) => addresses.isEmpty),
         staticIpForResolver: json['staticIpForResolver'] ?? true,
-        testDomain: json['testDomain'] ?? 'gstatic.com',
-        custom: (json['custom'] as List?)?.map((e) => Map<String, dynamic>.from(e)).toList(),
+        testDomain: (json['testDomain'] as String?)?.isNotEmpty == true ? json['testDomain'] : defaultTestDomain,
+        custom: (json['custom'] as List?)
+            ?.map((e) => Map<String, dynamic>.from(e))
+            .where((e) => isValidServer(e['url']?.toString() ?? ''))
+            .toList(),
       );
 
   Map<String, dynamic> toJson() => {
@@ -129,6 +143,7 @@ class DnsSettings {
 class TunSettings {
   static const String defaultIpv4 = '172.19.0.1/30';
   static const String defaultIpv6 = 'fdfe:dcba:9876::1/126';
+  static const int defaultMtu = 4064;
 
   /// 网络栈。iOS 只能用 gvisor
   String stack;
@@ -174,7 +189,7 @@ class TunSettings {
     this.ipv4Address = defaultIpv4,
     this.ipv6Address = defaultIpv6,
     this.loopbackAddress = '',
-    this.mtu = 4064,
+    this.mtu = defaultMtu,
     this.autoRoute = true,
     this.strictRoute = false,
     this.hijackDns = true,
@@ -200,7 +215,7 @@ class TunSettings {
         ipv4Address: json['ipv4Address'] ?? defaultIpv4,
         ipv6Address: json['ipv6Address'] ?? defaultIpv6,
         loopbackAddress: json['loopbackAddress'] ?? '',
-        mtu: json['mtu'] ?? 4064,
+        mtu: normalizeMtu(json['mtu']),
         autoRoute: json['autoRoute'] ?? true,
         strictRoute: json['strictRoute'] ?? false,
         hijackDns: json['hijackDns'] ?? true,
@@ -243,6 +258,9 @@ class TunSettings {
         'enforceRoutes': enforceRoutes,
         'appendHttpProxy': appendHttpProxy,
       };
+
+  /// 0 和不合法的值用默认值
+  static int normalizeMtu(int? value) => value == null || value <= 0 || value > 65535 ? defaultMtu : value;
 
   /// 掩码限制在 /24-/30，没写掩码时用 /30。不合法返回 null
   static String? normalizeIpv4(String text) {
@@ -306,6 +324,10 @@ class CoreSettings {
   /// 系统代理现在指向我们。崩溃后靠它知道要清掉，否则代理指着死端口，整机上不了网
   bool systemProxyActive;
 
+  /// 让代理设置绕过 [bypassDomains]。Windows 用在系统代理上，iOS 用在附加的 HTTP 代理上
+  bool proxyBypass;
+  List<String> bypassDomains;
+
   /// 启动 App 时自动连接
   bool autoConnect;
   IpStrategy ipStrategy;
@@ -338,6 +360,9 @@ class CoreSettings {
   int mixedPort;
   int upstreamPort;
   int clashPort;
+
+  /// 内核里测 DNS 延迟用的入站
+  int probePort;
   String clashSecret;
 
   CoreSettings({
@@ -355,6 +380,8 @@ class CoreSettings {
     this.tun = false,
     this.systemProxy = true,
     this.systemProxyActive = false,
+    this.proxyBypass = true,
+    List<String>? bypassDomains,
     this.autoConnect = false,
     this.ipStrategy = IpStrategy.ipv4Only,
     DnsSettings? dns,
@@ -372,15 +399,19 @@ class CoreSettings {
     this.mixedPort = 17890,
     this.upstreamPort = 17891,
     this.clashPort = 17892,
+    this.probePort = 17893,
     String? clashSecret,
   })  : selectedNodes = selectedNodes ?? {},
         favorites = favorites ?? {},
         dns = dns ?? DnsSettings(),
         tunSettings = tunSettings ?? TunSettings(),
+        bypassDomains = bypassDomains ?? [...defaultBypassDomains],
         userAgents = userAgents ?? [],
         deviceId = deviceId ?? _randomDeviceId(),
         groups = groups ?? RuleGroup.defaults(),
         clashSecret = clashSecret ?? _randomSecret();
+
+  static const List<String> defaultBypassDomains = ['localhost', '127.*', '10.*', '172.16.*', '192.168.*', '<local>'];
 
   static String _randomDeviceId() {
     final random = Random.secure();
@@ -408,6 +439,8 @@ class CoreSettings {
         tun: json['tun'] ?? false,
         systemProxy: json['systemProxy'] ?? true,
         systemProxyActive: json['systemProxyActive'] ?? false,
+        proxyBypass: json['proxyBypass'] ?? true,
+        bypassDomains: (json['bypassDomains'] as List?)?.map((e) => e.toString()).toList(),
         autoConnect: json['autoConnect'] ?? false,
         ipStrategy: IpStrategy.values.asNameMap()[json['ipStrategy']] ?? IpStrategy.ipv4Only,
         dns: json['dns'] == null ? null : DnsSettings.fromJson(json['dns']),
@@ -425,6 +458,7 @@ class CoreSettings {
         mixedPort: json['mixedPort'] ?? 17890,
         upstreamPort: json['upstreamPort'] ?? 17891,
         clashPort: json['clashPort'] ?? 17892,
+        probePort: json['probePort'] ?? 17893,
         clashSecret: json['clashSecret'],
       );
 
@@ -443,6 +477,8 @@ class CoreSettings {
         'tun': tun,
         'systemProxy': systemProxy,
         'systemProxyActive': systemProxyActive,
+        'proxyBypass': proxyBypass,
+        'bypassDomains': bypassDomains,
         'autoConnect': autoConnect,
         'ipStrategy': ipStrategy.name,
         'dns': dns,
@@ -460,6 +496,7 @@ class CoreSettings {
         'mixedPort': mixedPort,
         'upstreamPort': upstreamPort,
         'clashPort': clashPort,
+        'probePort': probePort,
         'clashSecret': clashSecret,
       };
 }

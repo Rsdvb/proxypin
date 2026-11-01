@@ -50,6 +50,11 @@ class _AdvancedPageState extends State<AdvancedPage> {
     });
   }
 
+  Future<void> _openBypass() async {
+    await Navigator.of(context).push(MaterialPageRoute(builder: (_) => const BypassDomainsPage()));
+    if (mounted) setState(() => _changed = true);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -86,6 +91,20 @@ class _AdvancedPageState extends State<AdvancedPage> {
               if (mounted) setState(() => _autostart = value);
             },
           ),
+        if (Platform.isWindows) ...[
+          SwitchListTile(
+            title: const Text('允许绕过系统代理'),
+            value: _settings.proxyBypass,
+            onChanged: (value) => _change(() => _settings.proxyBypass = value),
+          ),
+          ListTile(
+            enabled: _settings.proxyBypass,
+            title: const Text('绕过的域名'),
+            subtitle: Text('${_settings.bypassDomains.length} 条'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: _settings.proxyBypass ? _openBypass : null,
+          ),
+        ],
         Padding(
           padding: const EdgeInsets.all(16),
           child: TextField(
@@ -95,6 +114,73 @@ class _AdvancedPageState extends State<AdvancedPage> {
                 labelText: '延迟测试地址', helperText: '测节点延迟时访问的网址', border: OutlineInputBorder()),
           ),
         ),
+      ]),
+    );
+  }
+}
+
+/// 代理设置绕过的域名，Windows 的系统代理和 iOS 的 HTTP 代理共用
+class BypassDomainsPage extends StatefulWidget {
+  const BypassDomainsPage({super.key});
+
+  @override
+  State<BypassDomainsPage> createState() => _BypassDomainsPageState();
+}
+
+class _BypassDomainsPageState extends State<BypassDomainsPage> {
+  final CoreSettings _settings = CoreManager.instance.settings;
+  final TextEditingController _input = TextEditingController();
+
+  @override
+  void dispose() {
+    _input.dispose();
+    super.dispose();
+  }
+
+  void _add() {
+    final text = _input.text.trim();
+    if (text.isEmpty || _settings.bypassDomains.contains(text)) return;
+    setState(() {
+      _settings.bypassDomains = [..._settings.bypassDomains, text];
+      _input.clear();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('绕过的域名'), actions: [
+        TextButton(
+          onPressed: () => setState(() => _settings.bypassDomains = [...CoreSettings.defaultBypassDomains]),
+          child: const Text('恢复默认'),
+        ),
+      ]),
+      body: ListView(children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+          child: TextField(
+            controller: _input,
+            autocorrect: false,
+            onSubmitted: (_) => _add(),
+            decoration: InputDecoration(
+              hintText: '*.example.com',
+              border: const OutlineInputBorder(),
+              isDense: true,
+              suffixIcon: IconButton(tooltip: '添加', icon: const Icon(Icons.add), onPressed: _add),
+            ),
+          ),
+        ),
+        for (final domain in _settings.bypassDomains)
+          ListTile(
+            title: Text(domain),
+            trailing: IconButton(
+              tooltip: '删除',
+              icon: const Icon(Icons.close, size: 20),
+              onPressed: () => setState(() {
+                _settings.bypassDomains = _settings.bypassDomains.where((e) => e != domain).toList();
+              }),
+            ),
+          ),
       ]),
     );
   }

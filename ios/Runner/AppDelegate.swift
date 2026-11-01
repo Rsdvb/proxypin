@@ -102,6 +102,8 @@ final class ImportLinks {
             case "setKeepAlive":
                 self?.keepAlive = call.arguments as? Bool ?? false
                 result(nil)
+            case "lastFailure":
+                VpnManager.shared.lastFailure { result($0) }
             case "wifiState":
                 NEHotspotNetwork.fetchCurrent { network in
                     DispatchQueue.main.async {

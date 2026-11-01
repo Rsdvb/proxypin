@@ -41,7 +41,7 @@ abstract class CorePlatform {
   Future<void> stop();
 
   /// Windows 系统代理，null 表示清除。iOS 由 TUN 接管，不需要
-  Future<void> setSystemProxy(int? port);
+  Future<void> setSystemProxy(int? port, {List<String> bypass = const []});
 
   /// iOS：解密时主 App 要留在后台
   Future<void> setKeepAlive(bool enabled);
@@ -50,6 +50,9 @@ abstract class CorePlatform {
   Future<void> watchCapture({required int port, required int clashPort, required String secret, required String fallbackMode});
 
   Future<void> unwatchCapture();
+
+  /// 内核启动失败或意外退出的原因，还在运行时返回 null
+  Future<String?> lastFailure();
 }
 
 /// 主 App 通过这个通道控制隧道
@@ -99,7 +102,7 @@ class IosCorePlatform implements CorePlatform {
   Future<void> stop() => _channel.invokeMethod('stop');
 
   @override
-  Future<void> setSystemProxy(int? port) async {}
+  Future<void> setSystemProxy(int? port, {List<String> bypass = const []}) async {}
 
   @override
   Future<void> setKeepAlive(bool enabled) => _channel.invokeMethod('setKeepAlive', enabled);
@@ -116,6 +119,9 @@ class IosCorePlatform implements CorePlatform {
 
   @override
   Future<void> unwatchCapture() => _channel.invokeMethod('unwatchCapture');
+
+  @override
+  Future<String?> lastFailure() => _channel.invokeMethod<String>('lastFailure');
 }
 
 /// sing-box.exe 作为子进程运行，和 RsProxy.exe 放在同一目录
@@ -211,11 +217,9 @@ class WindowsCorePlatform implements CorePlatform {
   }
 
   @override
-  Future<void> setSystemProxy(int? port) {
-    return SystemProxy.setSystemProxyEnable(port ?? 0, port != null, true, passDomains: _passDomains);
+  Future<void> setSystemProxy(int? port, {List<String> bypass = const []}) {
+    return SystemProxy.setSystemProxyEnable(port ?? 0, port != null, true, passDomains: bypass.join(';'));
   }
-
-  static const String _passDomains = 'localhost;127.*;10.*;172.16.*;192.168.*;<local>';
 
   @override
   Future<void> setKeepAlive(bool enabled) async {}
@@ -225,6 +229,9 @@ class WindowsCorePlatform implements CorePlatform {
 
   @override
   Future<void> unwatchCapture() async {}
+
+  @override
+  Future<String?> lastFailure() async => _process == null && _log.isNotEmpty ? _log.join('\n') : null;
 }
 
 /// 把子进程放进“句柄关闭即终止”的作业对象。RsProxy 崩溃或被结束时系统会回收句柄，

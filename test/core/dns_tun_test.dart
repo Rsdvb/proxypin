@@ -273,7 +273,6 @@ void main() {
             stack: 'system',
             udpTimeoutSeconds: 60,
             strictRoute: true,
-            autoRoute: false,
             loopbackAddress: '10.7.0.1',
           ),
           ipStrategy: IpStrategy.preferIpv4));
@@ -281,7 +280,6 @@ void main() {
       expect(tun['stack'], 'system');
       expect(tun['udp_timeout'], '60s');
       expect(tun['strict_route'], isTrue);
-      expect(tun['auto_route'], isFalse);
       expect(tun['loopback_address'], ['10.7.0.1']);
       expect(tun['address'], hasLength(2));
     });
@@ -523,7 +521,7 @@ class _Platform implements CorePlatform {
   Future<void> stop() async => running = false;
 
   @override
-  Future<void> setSystemProxy(int? port) async {}
+  Future<void> setSystemProxy(int? port, {List<String> bypass = const []}) async {}
 
   @override
   Future<void> setKeepAlive(bool enabled) async {}
@@ -533,6 +531,9 @@ class _Platform implements CorePlatform {
 
   @override
   Future<void> unwatchCapture() async {}
+
+  @override
+  Future<String?> lastFailure() async => null;
 }
 
 class _Mitm implements MitmHost {

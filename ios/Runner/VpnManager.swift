@@ -66,9 +66,34 @@ class VpnManager {
         case .disconnecting:
             vpnStatus = .disconnecting
         case .disconnected, .invalid:
+            if vpnStatus != .off && !stopping {
+                ended = true
+            }
+            stopping = false
             vpnStatus = .off
         @unknown default:
             break
+        }
+    }
+
+    /// 隧道不是用户断开的，自己结束了。上一次的错误系统一直留着，靠这个分辨是不是这次的
+    private var ended = false
+    private var stopping = false
+
+    /// 隧道这次结束的原因，还在运行时返回 nil
+    func lastFailure(_ completion: @escaping (String?) -> Void) {
+        guard ended, let connection = manager?.connection else {
+            completion(nil)
+            return
+        }
+        guard #available(iOS 16.0, *) else {
+            completion("隧道启动失败")
+            return
+        }
+        connection.fetchLastDisconnectError { error in
+            DispatchQueue.main.async {
+                completion(error?.localizedDescription ?? "隧道启动失败")
+            }
         }
     }
 
@@ -83,6 +108,7 @@ class VpnManager {
     }
 
     func start(_ options: [String: Any] = [:], _ completion: @escaping (Error?) -> Void) {
+        ended = false
         NETunnelProviderManager.loadAllFromPreferences { [weak self] managers, error in
             if let error {
                 completion(error)
@@ -142,6 +168,7 @@ class VpnManager {
     }
 
     func disconnect() {
+        stopping = true
         manager?.connection.stopVPNTunnel()
     }
 

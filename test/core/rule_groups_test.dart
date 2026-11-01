@@ -804,6 +804,16 @@ void main() {
     Directory(directory).createSync(recursive: true);
 
     final group = RuleGroup.fromJson(_everyCondition.toJson())..dnsServer = 'tls://1.1.1.1';
+    final sourceSet = RuleSets.tagOfUrl('https://example.com/a.json');
+    // 内核启动时就会读 JSON 规则集，这里顺便验证一下格式
+    File('$directory/rules/$sourceSet')
+      ..createSync(recursive: true)
+      ..writeAsStringSync(jsonEncode({
+        'version': 3,
+        'rules': [
+          {'domain_suffix': ['example.com']}
+        ]
+      }));
     final options = _options(
       finalTarget: RuleTarget.block,
       dns: DnsSettings(enableRule: true),
@@ -813,7 +823,7 @@ void main() {
           id: 'or',
           name: 'or',
           target: RuleTarget.auto,
-          ruleSets: ['geoip-cn', RuleSets.tagOfUrl('https://example.com/a.json')],
+          ruleSets: ['geoip-cn', sourceSet],
           domainSuffixes: ['or.example'],
           ports: [22],
           portRanges: [':1000'],
@@ -868,7 +878,7 @@ class _Platform implements CorePlatform {
   Future<void> stop() async => running = false;
 
   @override
-  Future<void> setSystemProxy(int? port) async {}
+  Future<void> setSystemProxy(int? port, {List<String> bypass = const []}) async {}
 
   @override
   Future<void> setKeepAlive(bool enabled) async {}
@@ -878,6 +888,9 @@ class _Platform implements CorePlatform {
 
   @override
   Future<void> unwatchCapture() async {}
+
+  @override
+  Future<String?> lastFailure() async => null;
 }
 
 class _Mitm implements MitmHost {

@@ -39,7 +39,8 @@ jobs:
       - name: Check generated configuration
         run: |
           cd build/core-config
-          cp -r ../../assets/rules rules
+          mkdir -p rules
+          cp -r ../../assets/rules/. rules/
           for config in *.json; do
             echo "checking $config"
             "$SING_BOX_BIN" check -c "$config"

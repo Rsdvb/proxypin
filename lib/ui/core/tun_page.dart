@@ -3,7 +3,10 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:proxypin/core/core_manager.dart';
 import 'package:proxypin/core/core_settings.dart';
+import 'package:proxypin/core/rule_group.dart';
 import 'package:proxypin/core/windows_autostart.dart';
+
+import 'advanced_page.dart';
 
 /// TUN 设置。iOS 始终走 TUN，所以没有总开关
 class TunPage extends StatefulWidget {
@@ -66,12 +69,12 @@ class _TunPageState extends State<TunPage> {
     );
   }
 
-  Widget _switch(String title, bool value, ValueChanged<bool> onChanged, {String? tip}) {
+  Widget _switch(String title, bool value, ValueChanged<bool> onChanged, {String? tip, bool enabled = true}) {
     return SwitchListTile(
       title: Text(title),
       subtitle: tip == null ? null : Text(tip),
       value: value,
-      onChanged: _enabled ? (changed) => _change(() => onChanged(changed)) : null,
+      onChanged: _enabled && enabled ? (changed) => _change(() => onChanged(changed)) : null,
     );
   }
 
@@ -104,7 +107,9 @@ class _TunPageState extends State<TunPage> {
           if (address != null) tun.ipv6Address = address;
         }),
         _text('环回地址', tun.loopbackAddress, '10.7.0.1', (value) {
-          tun.loopbackAddress = value.trim();
+          final address = value.trim();
+          if (address.isNotEmpty && InternetAddress.tryParse(address) == null) return;
+          tun.loopbackAddress = address;
           _changed = true;
         }),
         _text('UDP 超时（秒）', '${tun.udpTimeoutSeconds}', '300', (value) {
@@ -113,8 +118,8 @@ class _TunPageState extends State<TunPage> {
           tun.udpTimeoutSeconds = seconds.clamp(5, 365 * 86400);
           _changed = true;
         }, keyboard: TextInputType.number),
-        _text('MTU', '${tun.mtu}', '4064', (value) {
-          tun.mtu = int.tryParse(value) ?? 4064;
+        _text('MTU', '${tun.mtu}', '${TunSettings.defaultMtu}', (value) {
+          tun.mtu = TunSettings.normalizeMtu(int.tryParse(value));
           _changed = true;
         }, keyboard: TextInputType.number),
         ListTile(
@@ -138,7 +143,8 @@ class _TunPageState extends State<TunPage> {
                 ),
         ),
         if (Platform.isWindows) _switch('自动路由', tun.autoRoute, (value) => tun.autoRoute = value),
-        _switch('严格路由', tun.strictRoute, (value) => tun.strictRoute = value, tip: '如果开启共享后，其他设备无法接入此设备，请尝试关闭'),
+        _switch('严格路由', tun.strictRoute, (value) => tun.strictRoute = value,
+            tip: '如果开启共享后，其他设备无法接入此设备，请尝试关闭', enabled: tun.autoRoute),
         ListTile(
           enabled: _enabled,
           title: const Text('排除地址段'),
@@ -150,6 +156,21 @@ class _TunPageState extends State<TunPage> {
           const Divider(height: 1),
           _switch('附加 HTTP 代理到 VPN', tun.appendHttpProxy, (value) => tun.appendHttpProxy = value,
               tip: '一些 App 会绕过虚拟网卡直连 HTTP 代理'),
+          _switch('允许绕过 HTTP 代理', _settings.proxyBypass, (value) => _settings.proxyBypass = value,
+              enabled: tun.appendHttpProxy),
+          ListTile(
+            enabled: tun.appendHttpProxy && _settings.proxyBypass,
+            title: const Text('绕过的域名'),
+            subtitle: Text('${_settings.bypassDomains.length} 条'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: tun.appendHttpProxy && _settings.proxyBypass
+                ? () async {
+                    await Navigator.of(context).push(MaterialPageRoute(builder: (_) => const BypassDomainsPage()));
+                    if (mounted) setState(() => _changed = true);
+                  }
+                : null,
+          ),
+          _switch('隐藏 VPN 图标', tun.hideVpn, (value) => tun.hideVpn = value, tip: '开启 IPv6 会导致此功能失效'),
           _switch('默认路由', tun.defaultRoute, (value) => tun.defaultRoute = value),
           _switch('includeAllNetworks', tun.includeAllNetworks, (value) => tun.includeAllNetworks = value, tip: 'iOS 14.0+'),
           _switch('excludeLocalNetworks', tun.excludeLocalNetworks, (value) => tun.excludeLocalNetworks = value, tip: 'iOS 14.2+'),
@@ -186,7 +207,11 @@ class _RouteExcludePageState extends State<RouteExcludePage> {
 
   void _add() {
     final text = _input.text.trim();
-    if (!RegExp(r'^[\da-fA-F:.]+/\d{1,3}$').hasMatch(text) || _tun.routeExcludeAddresses.contains(text)) return;
+    if (!RuleChecks.isCidr(text)) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('要带掩码，比如 224.0.0.0/4')));
+      return;
+    }
+    if (_tun.routeExcludeAddresses.contains(text)) return;
     setState(() {
       _tun.routeExcludeAddresses = [..._tun.routeExcludeAddresses, text];
       _input.clear();
@@ -234,7 +259,7 @@ class _RouteExcludePageState extends State<RouteExcludePage> {
             autocorrect: false,
             onSubmitted: (_) => _add(),
             decoration: InputDecoration(
-              hintText: '192.168.0.0/16',
+              hintText: '224.0.0.0/4',
               border: const OutlineInputBorder(),
               isDense: true,
               suffixIcon: IconButton(tooltip: '添加', icon: const Icon(Icons.add), onPressed: on ? _add : null),

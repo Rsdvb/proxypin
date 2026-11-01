@@ -64,7 +64,12 @@ class _Platform implements CorePlatform {
   }
 
   @override
-  Future<void> setSystemProxy(int? port) async => calls.add('systemProxy:$port');
+  Future<void> setSystemProxy(int? port, {List<String> bypass = const []}) async {
+    calls.add('systemProxy:$port');
+    this.bypass = bypass;
+  }
+
+  List<String> bypass = const [];
 
   @override
   Future<void> setKeepAlive(bool enabled) async => calls.add('keepAlive:$enabled');
@@ -76,6 +81,11 @@ class _Platform implements CorePlatform {
 
   @override
   Future<void> unwatchCapture() async => calls.add('unwatch');
+
+  String? failure;
+
+  @override
+  Future<String?> lastFailure() async => failure;
 }
 
 class _Mitm implements MitmHost {
@@ -176,12 +186,12 @@ void main() {
 
       expect(platform.calls, isNot(contains('systemProxy:17890')));
       final inbounds = (writtenConfig()['inbounds'] as List).map((e) => e['tag']);
-      expect(inbounds, ['tun-in', 'mixed-in', 'upstream-in']);
+      expect(inbounds, ['tun-in', 'mixed-in', 'upstream-in', 'probe-in']);
 
       await manager.disconnect();
       manager.settings.tunSettings.appendHttpProxy = false;
       await manager.connect();
-      expect((writtenConfig()['inbounds'] as List).map((e) => e['tag']), ['tun-in', 'upstream-in']);
+      expect((writtenConfig()['inbounds'] as List).map((e) => e['tag']), ['tun-in', 'upstream-in', 'probe-in']);
     });
 
     test('a failed start reports why and stops cleanly', () async {
@@ -192,6 +202,37 @@ void main() {
       expect(manager.lastError, contains('port in use'));
       expect(platform.calls, contains('stop'));
       expect(platform.calls, isNot(contains('systemProxy:17890')));
+    });
+
+    test('a core that exits on start is reported at once, in words the user can act on', () async {
+      api.failuresBeforeReady = 1000000;
+      platform.failure = 'FATAL[0000] listen tcp 127.0.0.1:17890: bind: address already in use';
+      final stopwatch = Stopwatch()..start();
+      await manager.connect();
+
+      expect(stopwatch.elapsed, lessThan(const Duration(seconds: 2)));
+      expect(manager.state, CoreState.stopped);
+      expect(manager.lastError, contains('17890'));
+      expect(manager.lastError, contains('被其他程序占用'));
+    });
+
+    test('the system proxy gets the bypass list, unless bypassing is off', () async {
+      await manager.addProfile(twoNodes);
+      await manager.connect();
+      expect(platform.bypass, manager.settings.bypassDomains);
+
+      await manager.disconnect();
+      manager.settings.proxyBypass = false;
+      await manager.connect();
+      expect(platform.bypass, isEmpty);
+    });
+
+    test('a changed bypass list reaches the system proxy without reconnecting', () async {
+      await manager.connect();
+      manager.settings.bypassDomains = ['example.com'];
+      await manager.applySettings();
+
+      expect(platform.bypass, ['example.com']);
     });
 
     test('disconnecting clears the system proxy before the core goes away', () async {

@@ -21,8 +21,8 @@ abstract class DnsCatalog {
   static const String local = 'local';
   static const String dhcp = 'dhcp://auto';
 
-  /// 这个地址之外还有哪些协议可写
-  static const Set<String> schemes = {'udp', 'tcp', 'tls', 'https', 'h3', 'quic', 'dhcp'};
+  /// 自定义服务器能用的协议
+  static const Set<String> schemes = {'udp', 'tcp', 'tls', 'https', 'h3', 'quic'};
 
   static const List<DnsServer> servers = [
     DnsServer('Local', local),
@@ -72,6 +72,7 @@ abstract class DnsCatalog {
     DnsServer('OpenDNS', 'udp://208.67.220.220'),
     DnsServer('Yandex DNS', 'udp://77.88.8.1'),
     DnsServer('Yandex DNS', 'udp://77.88.8.8'),
+    DnsServer('Yandex DNS', 'udp://dns.yandex.net'),
     DnsServer('Yandex DNS', 'udp://[2a02:6b8::feed:0ff]'),
     DnsServer('Yandex DNS', 'udp://[2a02:6b8:0:1::feed:0ff]'),
     DnsServer('Comodo DNS', 'udp://8.26.56.26'),

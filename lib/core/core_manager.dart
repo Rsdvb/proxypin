@@ -15,6 +15,7 @@ import 'core_settings.dart';
 import 'core_tools.dart';
 import 'device_identity.dart';
 import 'dns_catalog.dart';
+import 'dns_probe.dart';
 import 'import_link.dart';
 import 'profile.dart';
 import 'profile_parser.dart';
@@ -38,6 +39,16 @@ abstract class MitmHost {
   Future<void> attach(int upstreamPort);
 
   Future<void> detach();
+}
+
+/// 内核没能启动，内容是给用户看的
+class CoreStartException implements Exception {
+  final String message;
+
+  const CoreStartException(this.message);
+
+  @override
+  String toString() => message;
 }
 
 /// 添加的配置已经有了
@@ -165,6 +176,13 @@ class CoreManager extends ChangeNotifier {
   /// 本地代理地址，下载订阅时用。upstream-in 在两个平台都有，mixed-in 在 iOS 上不开
   String? get proxyAddress => isRunning ? '127.0.0.1:${settings.upstreamPort}' : null;
 
+  /// 测 DNS 的两条路，没连接时为空
+  ProbeRoute? get directProbe =>
+      isRunning ? ProbeRoute(settings.probePort, CoreConfig.probeDirect, settings.clashSecret, viaNode: false) : null;
+
+  ProbeRoute? get nodeProbe =>
+      isRunning ? ProbeRoute(settings.probePort, CoreConfig.probeNode, settings.clashSecret, viaNode: true) : null;
+
   Future<void> load() async {
     settings = await store.loadSettings();
     profiles = await store.loadProfiles();
@@ -224,13 +242,18 @@ class CoreManager extends ChangeNotifier {
   }
 
   Future<void> _afterCrash() async {
+    final failure = await platform.lastFailure();
+    if (failure != null) {
+      lastError = CoreTools.describeFailure(failure);
+      notifyListeners();
+    }
     await _setSystemProxy(null);
     await platform.setKeepAlive(false);
     await mitm.detach();
   }
 
   Future<void> _setSystemProxy(int? port) async {
-    await platform.setSystemProxy(port);
+    await platform.setSystemProxy(port, bypass: settings.proxyBypass ? settings.bypassDomains : const []);
     settings.systemProxyActive = port != null;
     await store.saveSettings(settings);
   }
@@ -296,9 +319,10 @@ class CoreManager extends ChangeNotifier {
         await api.mode();
         return;
       } on Exception {
-        if (DateTime.now().isAfter(deadline)) {
-          throw StateError('sing-box did not start');
-        }
+        // 内核已经退出了就不用等到超时
+        final failure = await platform.lastFailure();
+        if (failure != null) throw CoreStartException(CoreTools.describeFailure(failure));
+        if (DateTime.now().isAfter(deadline)) throw const CoreStartException('内核没有响应，请重试');
         await Future.delayed(const Duration(milliseconds: 100));
       }
     }
@@ -397,6 +421,8 @@ class CoreManager extends ChangeNotifier {
       mixedPort: alwaysTun && !settings.tunSettings.appendHttpProxy ? 0 : settings.mixedPort,
       upstreamPort: settings.upstreamPort,
       mitmPort: mitm.port,
+      probePort: settings.probePort,
+      proxyBypass: settings.proxyBypass ? settings.bypassDomains : const [],
       mitmDomains: mitm.domains,
       clashPort: settings.clashPort,
       clashSecret: settings.clashSecret,
@@ -837,6 +863,8 @@ class CoreManager extends ChangeNotifier {
     await store.saveSettings(settings);
     await _refreshClientSubnet();
     await _applyConfig();
+    // 绕过的域名可能改了
+    if (settings.systemProxyActive) await _setSystemProxy(settings.mixedPort);
     notifyListeners();
   }
 

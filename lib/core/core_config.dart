@@ -50,6 +50,12 @@ class CoreOptions {
   /// RsProxy 解密端口
   final int mitmPort;
 
+  /// 测 DNS 延迟用的入站，0 表示不开
+  final int probePort;
+
+  /// 代理设置里绕过的域名
+  final List<String> proxyBypass;
+
   /// 要解密的域名后缀，null 表示全部 TCP 都交给 RsProxy，由它按规则判断
   final List<String>? mitmDomains;
 
@@ -81,6 +87,8 @@ class CoreOptions {
     this.mixedPort = 0,
     required this.upstreamPort,
     required this.mitmPort,
+    this.probePort = 0,
+    this.proxyBypass = const [],
     this.mitmDomains = const [],
     required this.clashPort,
     required this.clashSecret,
@@ -111,6 +119,7 @@ class CoreConfig {
   static const String _tagTun = 'tun-in';
   static const String _tagMixed = 'mixed-in';
   static const String _tagUpstream = 'upstream-in';
+  static const String _tagProbe = 'probe-in';
   static const String _dnsProxy = 'dns-proxy';
   static const String _dnsDirect = 'dns-direct';
   static const String _dnsFakeIp = 'dns-fakeip';
@@ -121,6 +130,11 @@ class CoreConfig {
 
   /// [CoreOptions.avoidLocalDns] 时代替系统 DNS
   static const String _fallbackLocalDns = 'udp://223.6.6.6';
+
+  /// 探测入站的用户名，决定走直连还是当前节点。放在内核里分流，
+  /// 这样连接时也能真的测到直连，而不是绕进隧道
+  static const String probeDirect = 'direct';
+  static const String probeNode = 'node';
 
   static const String modeRule = 'Rule';
   static const String modeGlobal = 'Global';
@@ -165,6 +179,16 @@ class CoreConfig {
         if (options.mixedPort > 0)
           {'type': 'mixed', 'tag': _tagMixed, 'listen': '127.0.0.1', 'listen_port': options.mixedPort},
         {'type': 'mixed', 'tag': _tagUpstream, 'listen': '127.0.0.1', 'listen_port': options.upstreamPort},
+        if (options.probePort > 0)
+          {
+            'type': 'mixed',
+            'tag': _tagProbe,
+            'listen': '127.0.0.1',
+            'listen_port': options.probePort,
+            'users': [
+              for (final user in [probeDirect, probeNode]) {'username': user, 'password': options.clashSecret},
+            ],
+          },
       ];
 
   static Map<String, dynamic> _tun(CoreOptions options) {
@@ -186,13 +210,19 @@ class CoreConfig {
       'mtu': tun.mtu,
       'stack': tun.stack,
       'auto_route': tun.autoRoute,
-      if (tun.strictRoute) 'strict_route': true,
+      if (tun.strictRoute && tun.autoRoute) 'strict_route': true,
       'udp_timeout': '${tun.udpTimeoutSeconds}s',
       if (tun.loopbackAddress.isNotEmpty) 'loopback_address': [tun.loopbackAddress],
       if (excluded.isNotEmpty) 'route_exclude_address': excluded,
       if (tun.appendHttpProxy && options.mixedPort > 0)
         'platform': {
-          'http_proxy': {'enabled': true, 'server': '127.0.0.1', 'server_port': options.mixedPort},
+          'http_proxy': {
+            'enabled': true,
+            'server': '127.0.0.1',
+            'server_port': options.mixedPort,
+            // <local> 是 Windows 的写法
+            if (options.proxyBypass.isNotEmpty) 'bypass_domain': options.proxyBypass.where((e) => e != '<local>').toList(),
+          },
         },
     };
   }
@@ -382,6 +412,20 @@ class CoreConfig {
 
     return {
       'rules': [
+        // 排在嗅探前面：发往 53 端口的探测会被认成 DNS 接管掉，就测不到那台服务器了
+        if (options.probePort > 0) ...[
+          {
+            'inbound': [_tagProbe],
+            'auth_user': [probeDirect],
+            'action': 'route',
+            'outbound': _tagDirect,
+          },
+          {
+            'inbound': [_tagProbe],
+            'action': 'route',
+            'outbound': _tagSelect,
+          },
+        ],
         {'action': 'sniff'},
         if (options.tun && options.tunSettings.hijackDns) {'protocol': 'dns', 'action': 'hijack-dns'},
         if (options.privateDirect) {'ip_is_private': true, 'action': 'route', 'outbound': _tagDirect},
