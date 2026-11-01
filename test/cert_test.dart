@@ -10,7 +10,7 @@ import 'package:proxypin/network/util/cert/x509.dart';
 import 'package:proxypin/network/util/crypto.dart';
 
 void main() async {
-  var caPem = await File('assets/certs/ca.crt').readAsString();
+  var caPem = await File('test/fixtures/certs/ca.crt').readAsString();
   //生成 公钥和私钥
   var caRoot = X509Utils.x509CertificateFromPem(caPem);
   var generateRSAKeyPair = CryptoUtils.generateRSAKeyPair();
@@ -30,15 +30,15 @@ NQIDAQAB
 -----END PUBLIC KEY-----
   """;
   print(serverPublicKeyPem);
-  var readAsString = await File('assets/certs/server.key').readAsString();
+  var readAsString = await File('test/fixtures/certs/server.key').readAsString();
   // var rsaPrivateKeyFromPem = CryptoUtils.rsaPrivateKeyFromPem(serverPriKeyPem);
   // print(rsaPrivateKeyFromPem);
   var crt = generate(
       caRoot, CryptoUtils.rsaPublicKeyFromPem(serverPublicKeyPem), CryptoUtils.rsaPrivateKeyFromPem(readAsString));
   print(crt);
 
-  // await File('assets/certs/server.crt').writeAsString(crt);
-  // var readAsString2 = File('assets/certs/server.crt').readAsStringSync();
+  // await File('test/fixtures/certs/server.crt').writeAsString(crt);
+  // var readAsString2 = File('test/fixtures/certs/server.crt').readAsStringSync();
 
   //TLS服务器证书必须包含ExtendedKeyUsage（EKU）扩展，该扩展包含id-kp-serverAuth OID。
 

@@ -148,7 +148,7 @@ class _MobileSslState extends State<MobileSslWidget> {
                 title: Text(localizations.exportCA),
                 onTap: () async {
                   final file = await CertificateManager.certificateFile();
-                  _exportFile("ProxyPinCA.crt", file: file);
+                  _exportFile("RsProxyCA.crt", file: file);
                 }),
             Divider(height: 0, thickness: 0.3, color: dividerColor),
             ListTile(title: Text(localizations.exportCaP12), onTap: exportP12),
@@ -157,7 +157,7 @@ class _MobileSslState extends State<MobileSslWidget> {
                 title: Text(localizations.exportPrivateKey),
                 onTap: () async {
                   final file = await CertificateManager.privateKeyFile();
-                  _exportFile("ProxyPinKey.pem", file: file);
+                  _exportFile("RsProxyKey.pem", file: file);
                 }),
           ]),
           const SizedBox(height: 12),
@@ -171,18 +171,6 @@ class _MobileSslState extends State<MobileSslWidget> {
                   showConfirmDialog(context, title: localizations.generateCA, content: localizations.generateCADescribe,
                       onConfirm: () async {
                     await CertificateManager.generateNewRootCA();
-                    if (context.mounted) FlutterToastr.show(localizations.success, context);
-                    if (Platform.isIOS) _refreshStatus();
-                  });
-                }),
-            Divider(height: 0, thickness: 0.3, color: dividerColor),
-            ListTile(
-                title: Text(localizations.resetDefaultCA),
-                onTap: () async {
-                  showConfirmDialog(context,
-                      title: localizations.resetDefaultCA,
-                      content: localizations.resetDefaultCADescribe, onConfirm: () async {
-                    await CertificateManager.resetDefaultRootCA();
                     if (context.mounted) FlutterToastr.show(localizations.success, context);
                     if (Platform.isIOS) _refreshStatus();
                   });
@@ -257,7 +245,7 @@ class _MobileSslState extends State<MobileSslWidget> {
                 onPressed: () async {
                   var p12Bytes =
                       await CertificateManager.generatePkcs12(password?.isNotEmpty == true ? password : null);
-                  _exportFile("ProxyPinPkcs12.p12", bytes: p12Bytes);
+                  _exportFile("RsProxyPkcs12.p12", bytes: p12Bytes);
 
                   if (context.mounted) Navigator.pop(context);
                 },
@@ -386,7 +374,7 @@ class _AndroidCaInstallState extends State<AndroidCaInstall> with SingleTickerPr
         onPressed: () {},
         child: Text("1. ${localizations.downloadRootCa} ", textAlign: TextAlign.left),
       ),
-      FilledButton(onPressed: () => _downloadCert('ProxyPinCA.crt'), child: Text(localizations.downloadRootCa)),
+      FilledButton(onPressed: () => _downloadCert('RsProxyCA.crt'), child: Text(localizations.downloadRootCa)),
       const SizedBox(height: 5),
       TextButton(onPressed: () {}, child: Text("2. ${localizations.androidUserCAInstall}")),
       TextButton(
@@ -746,7 +734,7 @@ class _IosCaInstallState extends State<IosCaInstall> {
 
     return Column(children: [
       const SizedBox(height: 6),
-      _kv('Name', details.subject['2.5.4.3'] ?? 'ProxyPin CA', infoLabelStyle, infoValueStyle),
+      _kv('Name', details.subject['2.5.4.3'] ?? 'RsProxy CA', infoLabelStyle, infoValueStyle),
       const SizedBox(height: 6),
       _kv('Expires', details.validity.notAfter.toLocal().toString().split(' ').first, infoLabelStyle, infoValueStyle),
       // const SizedBox(height: 6),

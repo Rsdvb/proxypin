@@ -11,7 +11,7 @@ void main() async {
 //   var encode = keyUsageSequence(keyUsage)?.encode();
 //   print(Int8List.view(encode!.buffer));
 
-  var caPem = await File('assets/certs/ca.crt').readAsString();
+  var caPem = await File('test/fixtures/certs/ca.crt').readAsString();
 
   // var caPem = File('/Users/wanghongen/Downloads/proxyman.crt').readAsStringSync();
   //生成 公钥和私钥
@@ -21,7 +21,7 @@ void main() async {
 
   //16进制
   print(d);
-  // var certPath = 'assets/certs/ca.crt';
+  // var certPath = 'test/fixtures/certs/ca.crt';
   //生成 公钥和私钥
   // var caRoot = X509Utils.x509CertificateFromPem(caPem);
   // print(caRoot.tbsCertificate.);

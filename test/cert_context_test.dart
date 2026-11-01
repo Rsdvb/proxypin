@@ -16,8 +16,8 @@ void main() {
 
   setUpAll(() async {
     supportDir = await Directory.systemTemp.createTemp('proxypin_cert_');
-    await File('assets/certs/ca.crt').copy('${supportDir.path}/ca.crt');
-    await File('assets/certs/ca_key.pem').copy('${supportDir.path}/ca_key.pem');
+    await File('test/fixtures/certs/ca.crt').copy('${supportDir.path}/ca.crt');
+    await File('test/fixtures/certs/ca_key.pem').copy('${supportDir.path}/ca_key.pem');
 
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
         const MethodChannel('plugins.flutter.io/path_provider'), (call) async => supportDir.path);

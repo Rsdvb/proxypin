@@ -72,14 +72,6 @@ class _SslState extends State<SslWidget> {
               if (context.mounted) FlutterToastr.show(localizations.success, context);
             });
           }),
-          item(localizations.resetDefaultCA, onPressed: () async {
-            showConfirmDialog(context,
-                title: localizations.resetDefaultCA,
-                content: localizations.resetDefaultCADescribe, onConfirm: () async {
-              await CertificateManager.resetDefaultRootCA();
-              if (context.mounted) FlutterToastr.show(localizations.success, context);
-            });
-          }),
         ]);
   }
 
@@ -140,7 +132,7 @@ class _SslState extends State<SslWidget> {
                   padding: const EdgeInsets.only(left: 10, right: 10),
                   child: Text(localizations.exportCA, style: const TextStyle(fontSize: 14))),
               onPressed: () async {
-                String? path = (await Platforms.saveFileAdaptive(fileName: "ProxyPinCA.crt"));
+                String? path = (await Platforms.saveFileAdaptive(fileName: "RsProxyCA.crt"));
                 if (path == null) return;
 
                 var caFile = await CertificateManager.certificateFile();
@@ -176,7 +168,7 @@ class _SslState extends State<SslWidget> {
                               TextButton(
                                 onPressed: () async {
                                   String? path = (await Platforms.saveFileAdaptive(
-                                      fileName: "ProxyPinPkcs12.p12"));
+                                      fileName: "RsProxyPkcs12.p12"));
                                   if (path == null) return;
                                   var p12Bytes = await CertificateManager.generatePkcs12(
                                       password?.isNotEmpty == true ? password : null);
@@ -194,7 +186,7 @@ class _SslState extends State<SslWidget> {
                   padding: const EdgeInsets.only(left: 10, right: 10),
                   child: Text(localizations.exportPrivateKey, style: const TextStyle(fontSize: 14))),
               onPressed: () async {
-                String? path = (await Platforms.saveFileAdaptive(fileName: "ProxyPinKey.pem"));
+                String? path = (await Platforms.saveFileAdaptive(fileName: "RsProxyKey.pem"));
                 if (path == null) return;
 
                 var keyFile = await CertificateManager.privateKeyFile();

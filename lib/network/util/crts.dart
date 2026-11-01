@@ -34,13 +34,47 @@ import 'cert/cert_data.dart';
 import 'cert/extension.dart';
 import 'cert/key_usage.dart';
 import 'crypto.dart';
-import 'file_read.dart';
 
 Future<void> main() async {
   await CertificateManager.getCertificateContext('www.jianshu.com');
 }
 
 enum StartState { uninitialized, initializing, initialized }
+
+const String _certificateFileName = 'ca.crt';
+const String _privateKeyFileName = 'ca_key.pem';
+
+/// 生成根证书和私钥（均为 PEM）。RSA 生成耗时较长，要放到后台 isolate 运行
+(String, String) _newRootCA() {
+  final keyPair = CryptoUtils.generateRSAKeyPair();
+  final publicKey = keyPair.publicKey as RSAPublicKey;
+  final privateKey = keyPair.privateKey as RSAPrivateKey;
+
+  final subject = {
+    'C': 'CN',
+    'ST': 'BJ',
+    'L': 'Beijing',
+    'O': 'Proxy',
+    'OU': 'RsProxy',
+    'CN': 'RsProxy CA (${DateTime.now().dateFormat()},${RandomUtil.randomString(6).toUpperCase()})',
+  };
+
+  final certificate = X509Utils.generateSelfSignedCertificate(
+    null,
+    publicKey,
+    privateKey,
+    3650,
+    sans: ['RsProxy'],
+    serialNumber: DateTime.now().millisecondsSinceEpoch.toString(),
+    issuer: subject,
+    subject: subject,
+    keyUsage: ExtensionKeyUsage(ExtensionKeyUsage.keyCertSign | ExtensionKeyUsage.cRLSign),
+    extKeyUsage: [ExtendedKeyUsage.SERVER_AUTH],
+    basicConstraints: BasicConstraints(isCA: true),
+  );
+
+  return (certificate, CryptoUtils.encodeRSAPrivateKeyToPem(privateKey));
+}
 
 /// 域名叶子证书及其 [SecurityContext]
 class _LeafCertificate {
@@ -212,7 +246,7 @@ class CertificateManager {
       'ST': 'BJ',
       'L': 'Beijing',
       'O': 'Proxy',
-      'OU': 'ProxyPin',
+      'OU': 'RsProxy',
       'CN': host,
     };
     List<String> sans = [host];
@@ -265,60 +299,28 @@ class CertificateManager {
 
   //重新生成根证书
   static Future<void> generateNewRootCA() async {
-    if (_state != StartState.initialized) {
-      await initCAConfig();
-    }
-
-    var generateRSAKeyPair = CryptoUtils.generateRSAKeyPair();
-    var serverPubKey = generateRSAKeyPair.publicKey as RSAPublicKey;
-    var serverPriKey = generateRSAKeyPair.privateKey as RSAPrivateKey;
-
-    //根据CA证书subject来动态生成目标服务器证书的issuer和subject
-    Map<String, String> x509Subject = {
-      'C': 'CN',
-      'ST': 'BJ',
-      'L': 'Beijing',
-      'O': 'Proxy',
-      'OU': 'ProxyPin',
-    };
-    x509Subject['CN'] = 'ProxyPin CA (${DateTime.now().dateFormat()},${RandomUtil.randomString(6).toUpperCase()})';
-
-    var csrPem = X509Utils.generateSelfSignedCertificate(
-      _caCert!,
-      serverPubKey,
-      serverPriKey,
-      825,
-      sans: [x509Subject['CN']!],
-      serialNumber: DateTime.now().millisecondsSinceEpoch.toString(),
-      issuer: x509Subject,
-      subject: x509Subject,
-      keyUsage: ExtensionKeyUsage(ExtensionKeyUsage.keyCertSign),
-      extKeyUsage: [ExtendedKeyUsage.SERVER_AUTH],
-      basicConstraints: BasicConstraints(isCA: true),
-    );
-
-    //重新写入根证书
-    var caFile = await certificateFile();
-    await caFile.writeAsString(csrPem);
-
-    //私钥
-    var serverPriKeyPem = CryptoUtils.encodeRSAPrivateKeyToPem(serverPriKey);
-    var keyFile = await privateKeyFile();
-    await keyFile.writeAsString(serverPriKeyPem);
+    await _writeNewRootCA();
     cleanCache();
     _state = StartState.uninitialized;
   }
 
-  ///重置默认根证书
-  static Future<void> resetDefaultRootCA() async {
-    var caFile = await certificateFile();
-    await caFile.delete();
+  /// 根证书不内置：仓库是公开的，内置的私钥谁都能拿到，装上它等于让任何人都能冒充任何网站。
+  /// 所以每台设备第一次用到时自己生成一张，私钥只留在本机。
+  static Future<void> _ensureRootCA() {
+    return _rootCAGeneration ??= _writeNewRootCA().whenComplete(() {
+      _rootCAGeneration = null;
+    });
+  }
 
-    var keyFile = await privateKeyFile();
-    await keyFile.delete();
-    cleanCache();
-    _state = StartState.uninitialized;
-    initCAConfig();
+  static Future<void>? _rootCAGeneration;
+
+  static Future<void> _writeNewRootCA() async {
+    final (certificate, privateKey) = await Isolate.run(_newRootCA);
+    final directory = await getApplicationSupportDirectory();
+
+    //先写私钥：中途退出时证书文件还不存在，下次启动会重新生成，不会留下配不上的一对
+    await File("${directory.path}${Platform.pathSeparator}$_privateKeyFileName").writeAsString(privateKey);
+    await File("${directory.path}${Platform.pathSeparator}$_certificateFileName").writeAsString(certificate);
   }
 
   static Future<void> initCAConfig() async {
@@ -363,10 +365,9 @@ class CertificateManager {
   /// 证书文件
   static Future<File> certificateFile() async {
     final String appPath = await getApplicationSupportDirectory().then((value) => value.path);
-    var caFile = File("$appPath${Platform.pathSeparator}ca.crt");
+    var caFile = File("$appPath${Platform.pathSeparator}$_certificateFileName");
     if (!(await caFile.exists())) {
-      var body = await FileRead.read('assets/certs/ca.crt');
-      await caFile.writeAsBytes(body.buffer.asUint8List());
+      await _ensureRootCA();
     }
 
     return caFile;
@@ -381,10 +382,9 @@ class CertificateManager {
   /// 私钥文件
   static Future<File> privateKeyFile() async {
     final String appPath = await getApplicationSupportDirectory().then((value) => value.path);
-    var caFile = File("$appPath${Platform.pathSeparator}ca_key.pem");
+    var caFile = File("$appPath${Platform.pathSeparator}$_privateKeyFileName");
     if (!(await caFile.exists())) {
-      var body = await FileRead.read('assets/certs/ca_key.pem');
-      await caFile.writeAsBytes(body.buffer.asUint8List());
+      await _ensureRootCA();
     }
 
     return caFile;

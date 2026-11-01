@@ -8,7 +8,7 @@ import 'package:proxypin/network/util/crypto.dart';
 
 void main() {
   Future<String> generateCert(List<String> sans) async {
-    var caPem = await File('assets/certs/ca.crt').readAsString();
+    var caPem = await File('test/fixtures/certs/ca.crt').readAsString();
     var caRoot = X509Utils.x509CertificateFromPem(caPem);
     var keyPair = CryptoUtils.generateRSAKeyPair();
     return X509Utils.generateSelfSignedCertificate(

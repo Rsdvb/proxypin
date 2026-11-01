@@ -142,8 +142,9 @@ class X509Utils {
   /// * [serialNumber] = The serialnumber. If not set the default will be 1.
   /// * [issuer] = The issuer. If null, the issuer will be the subject of the given csr.
   ///
+  /// [caRoot] 为空时生成自签名根证书，此时必须传 [issuer] 和 [subject]
   static String generateSelfSignedCertificate(
-    X509CertificateData caRoot,
+    X509CertificateData? caRoot,
     RSAPublicKey publicKey,
     RSAPrivateKey privateKey,
     int days, {
@@ -169,12 +170,13 @@ class X509Utils {
     data.add(ASN1Integer(BigInt.parse(serialNumber)));
 
     // Add protocol
+    final signatureAlgorithm = caRoot?.signatureAlgorithm ?? _sha256WithRsa;
     var blockProtocol = ASN1Sequence();
-    blockProtocol.add(ASN1ObjectIdentifier.fromIdentifierString(caRoot.signatureAlgorithm));
+    blockProtocol.add(ASN1ObjectIdentifier.fromIdentifierString(signatureAlgorithm));
     blockProtocol.add(ASN1Null());
     data.add(blockProtocol);
 
-    issuer ??= Map.from(caRoot.subject);
+    issuer ??= Map.from(caRoot!.subject);
 
     // Add Issuer
     //优先使用 CA subject 的原始 DN 字节, 保证与签发 CA 二进制精确匹配(字符串类型 UTF8String/PrintableString 一致),
@@ -199,7 +201,7 @@ class X509Utils {
 
     // Add Subject
     var subjectSeq = ASN1Sequence();
-    subject ??= Map.from(caRoot.subject);
+    subject ??= Map.from(caRoot!.subject);
 
     for (var k in subject.keys) {
       var s = _identifier(k, subject[k]!);
@@ -274,7 +276,7 @@ class X509Utils {
     var outer = ASN1Sequence();
     outer.add(data);
     outer.add(blockProtocol);
-    var encode = _rsaSign(data.encode(), privateKey, _getDigestFromOi(caRoot.signatureAlgorithm));
+    var encode = _rsaSign(data.encode(), privateKey, _getDigestFromOi(signatureAlgorithm));
     outer.add(ASN1BitString(stringValues: encode));
 
     var chunks = Strings.chunk(base64Encode(outer.encode()), 64);
@@ -884,6 +886,8 @@ class X509Utils {
 
     return outer;
   }
+
+  static const String _sha256WithRsa = '1.2.840.113549.1.1.11';
 
   static String _getDigestFromOi(String oi) {
     switch (oi) {
