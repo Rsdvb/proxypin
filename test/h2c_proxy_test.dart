@@ -329,11 +329,11 @@ void main() {
 
   test('concurrent socket events share the first upstream connection', () async {
     final peer = await client();
+    // 不能 await flush：等待期间到达的 SETTINGS 会让监听回调 add ACK，与 flush 冲突。
     peer.socket.add([...ascii.encode(_preface), ..._frame(4, 0, 0, []), ...peer.request(1, origin.port, '/a')]);
-    await peer.socket.flush();
     await Future<void>.delayed(const Duration(milliseconds: 1));
     peer.socket.add(peer.request(3, origin.port, '/b'));
-    await peer.socket.flush();
+    await Future<void>.delayed(const Duration(milliseconds: 1));
     peer.socket.add(peer.request(5, origin.port, '/c'));
     expect(await Future.wait([peer.response(1), peer.response(3), peer.response(5)]), ['/a|', '/b|', '/c|']);
     expect(originConnections, 1);

@@ -13,7 +13,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -25,6 +24,7 @@ import 'package:win32audio/win32audio.dart';
 
 import 'cache.dart';
 import 'process_info_macos.dart';
+import 'process_info_windows.dart';
 
 void main() async {
   var processInfo = await ProcessInfoUtils.getProcess(512);
@@ -94,18 +94,9 @@ class ProcessInfoUtils {
   // 获取进程 ID
   static Future<int?> _getPid(InetSocketAddress socketAddress) async {
     if (Platform.isWindows) {
-      var result = await Process.run('cmd', ['/c', 'netstat -ano | findstr :${socketAddress.port}']);
-      var lines = LineSplitter.split(result.stdout);
-      for (var line in lines) {
-        var parts = line.trim().split(RegExp(r'\s+'));
-        if (parts.length < 5) {
-          continue;
-        }
-        if (parts[1].trim().contains("${socketAddress.host}:${socketAddress.port}")) {
-          return int.tryParse(parts[4]);
-        }
-      }
-      return null;
+      // Use iphlpapi (FFI) instead of spawning `netstat`, which every new
+      // client connection would otherwise wait on before going upstream.
+      return WindowsProcessInfo.findPidByLocalTcpEndpoint(socketAddress.address, socketAddress.port);
     }
 
     if (Platform.isMacOS) {
@@ -122,9 +113,8 @@ class ProcessInfoUtils {
   static Future<ProcessInfo?> getProcess(int pid) async {
     if (Platform.isWindows) {
       // 获取应用路径
-      var result = await Process.run('cmd', ['/c', 'wmic process where processid=$pid get ExecutablePath']);
-      var output = result.stdout.toString();
-      var path = output.split('\n')[1].trim();
+      final path = WindowsProcessInfo.getProcessPath(pid);
+      if (path == null) return null;
       String name = path.substring(path.lastIndexOf('\\') + 1);
       return ProcessInfo(name, name.split(".")[0], path, os: Platform.operatingSystem);
     }
