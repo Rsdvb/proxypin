@@ -51,6 +51,9 @@ abstract class Http2Codec<T extends HttpMessage> implements Codec<T, T> {
   // Per-stream SSE decoder instances keyed by HTTP/2 stream id
   final Map<int, SseDecoder> sseDecoders = {};
 
+  // 各 stream 尚未结束的 DATA 载荷，END_STREAM 时一次合并为 body
+  final Map<int, BytesBuilder> _bodyBuilders = {};
+
   // 大 body stream IDs - 这些 stream 的 DATA 帧直接转发不累积
   final Set<int> _largeBodyStreamIds = {};
 
@@ -236,6 +239,7 @@ abstract class Http2Codec<T extends HttpMessage> implements Codec<T, T> {
       case FrameType.rstStream:
         // stream 中断：清理 streaming upload 标记，避免泄漏
         _headerEndStreamPending.remove(frameHeader.streamIdentifier);
+        _bodyBuilders.remove(frameHeader.streamIdentifier);
         if (_largeBodyStreamIds.remove(frameHeader.streamIdentifier)) {
           logger.w("[${channelContext.clientChannel?.id}] h2 streaming stream:${frameHeader.streamIdentifier} reset");
         }
@@ -261,6 +265,10 @@ abstract class Http2Codec<T extends HttpMessage> implements Codec<T, T> {
     if (result.isDone && frameHeader.streamIdentifier > 0) {
       result.data = getMessage(channelContext, frameHeader);
       result.data?.streamId = frameHeader.streamIdentifier;
+      final bodyBuilder = _bodyBuilders.remove(frameHeader.streamIdentifier);
+      if (bodyBuilder != null) {
+        result.data?.body = bodyBuilder.takeBytes();
+      }
       channelContext.currentRequest = channelContext.getStreamRequest(frameHeader.streamIdentifier);
 
       if (result.data is HttpResponse) {
@@ -329,15 +337,17 @@ abstract class Http2Codec<T extends HttpMessage> implements Codec<T, T> {
 
     //body
     if (!emptyBody) {
-      var payload = data.body!;
-      while (payload.length > maxFrameSize) {
-        var chunkSize = min(maxFrameSize, payload.length);
-        var chunk = payload.sublist(0, chunkSize);
-        payload = payload.sublist(chunkSize);
+      final body = data.body!;
+      final payload = body is Uint8List ? body : Uint8List.fromList(body);
+      var offset = 0;
+      while (payload.length - offset > maxFrameSize) {
+        final chunk = Uint8List.sublistView(payload, offset, offset + maxFrameSize);
+        offset += maxFrameSize;
         _writeFrame(channelContext, bytesBuilder, FrameType.data, 0, data.streamId!, chunk);
       }
 
-      _writeFrame(channelContext, bytesBuilder, FrameType.data, FrameHeader.flagsEndStream, data.streamId!, payload);
+      _writeFrame(channelContext, bytesBuilder, FrameType.data, FrameHeader.flagsEndStream, data.streamId!,
+          Uint8List.sublistView(payload, offset));
     }
 
     return bytesBuilder.takeBytes();
@@ -468,16 +478,9 @@ abstract class Http2Codec<T extends HttpMessage> implements Codec<T, T> {
     var data = payload.readBytes(dataLength);
 
     // Regular body accumulation.
-    // 用 BytesBuilder 拼接，比 List.from(body!)..addAll(data) 少一次中间拷贝；
-    // 整体累积仍是 O(N²)（每次 toBytes 分配 sum 大 buffer），但常数更小。
-    if (message.body == null) {
-      message.body = data;
-    } else {
-      final builder = BytesBuilder(copy: false)
-        ..add(message.body!)
-        ..add(data);
-      message.body = builder.toBytes();
-    }
+    // 逐帧合并到 message.body 是 O(N²)：100M 的响应要拷贝数百 GB。
+    // data 是本帧私有拷贝的视图，可以不拷贝地暂存，stream 结束时再合并。
+    _bodyBuilders.putIfAbsent(frameHeader.streamIdentifier, () => BytesBuilder(copy: false)).add(data);
     message.packageSize = (message.packageSize ?? 0) + frameHeader.length;
     return DataFrame(frameHeader, padLength, data);
   }
