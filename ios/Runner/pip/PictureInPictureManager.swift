@@ -46,7 +46,10 @@ class PictureInPictureManager: NSObject,AVPictureInPictureControllerDelegate {
                 
             }
         })
-        
+    }
+
+    private func initPIP() {
+        // 真正用到画中画时才激活音频会话，不用它的时候不占用音频硬件
         if AVPictureInPictureController.isPictureInPictureSupported() {
             do {
                 try AVAudioSession.sharedInstance().setCategory(.playback, options: .mixWithOthers)
@@ -55,9 +58,7 @@ class PictureInPictureManager: NSObject,AVPictureInPictureControllerDelegate {
                 print(error)
             }
         }
-    }
-    
-    private func initPIP() {
+
         if (playerLayer == nil) {
             setupPlayer()
         }

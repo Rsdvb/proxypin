@@ -59,7 +59,19 @@ class AudioManager: NSObject {
         NotificationCenter.default.addObserver(self, selector: #selector(didBecomeActive), name: UIApplication.didBecomeActiveNotification, object: nil)
         
         NotificationCenter.default.addObserver(self, selector: #selector(audioSessionInterruption(notification:)), name: AVAudioSession.interruptionNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(mediaServicesWereReset), name: AVAudioSession.mediaServicesWereResetNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(vpnStatusDidChange), name: Notification.Name(rawValue: kProxyServiceVPNStatusNotification), object: nil)
 
+    }
+
+    private func playInBackground() {
+        do {
+            try self.audioSession.setActive(true)
+        } catch let error {
+            debugPrint("\(type(of:self)):\(error))")
+        }
+        self.backgroundAudioPlayer?.prepareToPlay()
+        self.backgroundAudioPlayer?.play()
     }
 }
 
@@ -69,16 +81,28 @@ extension AudioManager {
     @objc public func didEnterBackground() {
         self.backgroundEnteredAt = Date()
         guard self.openBackgroundAudioAutoplay else {return}
-        
-        do {
-            try self.audioSession.setActive(true)
-        } catch let error {
-            debugPrint("\(type(of:self)):\(error))")
-        }
-        self.backgroundAudioPlayer?.prepareToPlay()
-        self.backgroundAudioPlayer?.play()
+
+        self.playInBackground()
     }
-    
+
+    /// 媒体服务重启后原有的会话和播放器全部失效，不重建的话无声音频就停了，应用随后被挂起
+    @objc fileprivate func mediaServicesWereReset() {
+        guard self.openBackgroundAudioAutoplay else {return}
+
+        self.setupAudioSession()
+        self.setupBackgroundAudioPlayer()
+        if UIApplication.shared.applicationState == .background {
+            self.playInBackground()
+        }
+    }
+
+    /// VPN 已断开，代理没有在工作，继续播放只是耗电
+    @objc fileprivate func vpnStatusDidChange() {
+        if self.openBackgroundAudioAutoplay && VpnManager.shared.vpnStatus == .off {
+            self.openBackgroundAudioAutoplay = false
+        }
+    }
+
     /// 进入前台，暂停播放音乐
     @objc public func didBecomeActive() {
         self.hintBackgroundTimeLength()

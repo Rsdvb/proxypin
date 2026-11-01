@@ -45,31 +45,44 @@ import NetworkExtension
     }
 
     var timer: Timer?
-    var bgTask: UIBackgroundTaskIdentifier?
+    var bgTask: UIBackgroundTaskIdentifier = .invalid
 
     override func applicationDidEnterBackground(_ application: UIApplication) {
         if (!VpnManager.shared.isRunning()) {
             return
         }
-    
+
+        timer?.invalidate()
         timer = Timer.scheduledTimer(timeInterval: 3, target: self, selector: #selector(timerAction), userInfo: nil, repeats: true)
         RunLoop.current.add(timer!, forMode: RunLoop.Mode.common)
-               bgTask = application.beginBackgroundTask(expirationHandler: nil)
+        self.beginBgTask(application)
+    }
+
+    /// 后台任务必须在到期前结束，否则系统会直接终止应用，所以一定要带到期处理
+    private func beginBgTask(_ application: UIApplication) {
+        self.endBgTask(application)
+        bgTask = application.beginBackgroundTask(expirationHandler: { [weak self] in
+            self?.endBgTask(application)
+        })
+    }
+
+    private func endBgTask(_ application: UIApplication) {
+        if (bgTask != .invalid) {
+            application.endBackgroundTask(bgTask)
+            bgTask = .invalid
+        }
     }
 
     @objc func timerAction() {
         print(UIApplication.shared.backgroundTimeRemaining)
         let application = UIApplication.shared
-        
-        if (bgTask != nil) {
-            application.endBackgroundTask(bgTask!);
-            bgTask = nil;
-        }
-        
+
+        self.endBgTask(application)
+
         if (UIApplication.shared.backgroundTimeRemaining < 60 && VpnManager.shared.isRunning()) {
-            bgTask = application.beginBackgroundTask(expirationHandler: nil)
+            self.beginBgTask(application)
         }
-            
+
         if (application.backgroundTimeRemaining <= 0 || application.applicationState == .active || AudioManager.shared.openBackgroundAudioAutoplay) {
             timer?.invalidate();
             timer = nil;
@@ -85,6 +98,9 @@ import NetworkExtension
         self.backgroundAudio();
     }
     override  func applicationDidBecomeActive(_ application: UIApplication) {
+        timer?.invalidate()
+        timer = nil
+        self.endBgTask(application)
         self.endBackgroundUpdateTask()
     }
     
@@ -97,21 +113,28 @@ import NetworkExtension
         }
         
         AudioManager.shared.openBackgroundAudioAutoplay = true
+        // 到期只结束任务，不关音频：来电打断时任务可能到期，通话结束后还要恢复播放
         self.backgroundUpdateTask = UIApplication.shared.beginBackgroundTask(expirationHandler: {
-            self.endBackgroundUpdateTask()
+            self.endAudioStartTask()
         })
     }
-    
-    var backgroundUpdateTask: UIBackgroundTaskIdentifier = UIBackgroundTaskIdentifier(rawValue: 0)
-    
-    func endBackgroundUpdateTask() {
-        if (!VpnManager.shared.isRunning() || !AudioManager.shared.openBackgroundAudioAutoplay) {
-            return
-        }
 
-        AudioManager.shared.openBackgroundAudioAutoplay = false
-        UIApplication.shared.endBackgroundTask(self.backgroundUpdateTask)
-        self.backgroundUpdateTask = UIBackgroundTaskIdentifier.invalid
+    var backgroundUpdateTask: UIBackgroundTaskIdentifier = .invalid
+
+    private func endAudioStartTask() {
+        if (self.backgroundUpdateTask != .invalid) {
+            UIApplication.shared.endBackgroundTask(self.backgroundUpdateTask)
+            self.backgroundUpdateTask = .invalid
+        }
+    }
+
+    func endBackgroundUpdateTask() {
+        self.endAudioStartTask()
+
+        // VPN 已停止时也要关：否则之后每次进后台都会继续播放无声音频
+        if (AudioManager.shared.openBackgroundAudioAutoplay) {
+            AudioManager.shared.openBackgroundAudioAutoplay = false
+        }
     }
 
 }
