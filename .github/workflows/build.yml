@@ -30,11 +30,11 @@ jobs:
           mkdir -p build/ipa/Payload
           cp -R build/ios/iphoneos/Runner.app build/ipa/Payload/
           cd build/ipa
-          zip -qry ../ProxyPin-unsigned.ipa Payload
+          zip -qry ../RsProxy-unsigned.ipa Payload
       - uses: actions/upload-artifact@v4
         with:
-          name: ProxyPin-ios-unsigned
-          path: build/ProxyPin-unsigned.ipa
+          name: RsProxy-ios-unsigned
+          path: build/RsProxy-unsigned.ipa
           if-no-files-found: error
           retention-days: 30
 
@@ -54,7 +54,7 @@ jobs:
         run: flutter build windows --release
       - uses: actions/upload-artifact@v4
         with:
-          name: ProxyPin-windows-x64
+          name: RsProxy-windows-x64
           path: build/windows/x64/runner/Release
           if-no-files-found: error
           retention-days: 30

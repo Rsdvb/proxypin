@@ -188,7 +188,7 @@ class _PCCertState extends State<PCCert> with TickerProviderStateMixin {
       const SelectableText.rich(
           textAlign: TextAlign.justify,
           TextSpan(style: TextStyle(color: Color(0xff6a8759)), children: [
-            TextSpan(text: "  sudo cp ProxyPinCA.crt /usr/local/share/ca-certificates/ \n"),
+            TextSpan(text: "  sudo cp RsProxyCA.crt /usr/local/share/ca-certificates/ \n"),
             TextSpan(text: "  sudo update-ca-certificates")
           ])),
       const SizedBox(height: 10)
@@ -248,13 +248,13 @@ class _AutomaticInstallState extends State<_AutomaticInstall> {
     final infoValueStyle = Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w500);
     List<Widget> children = [
       const SizedBox(height: 8),
-      Text(isCN ? "通过安装并信任 ProxyPin CA" : "Install and Trust ProxyPin CA Certificate",
+      Text(isCN ? "通过安装并信任 RsProxy CA" : "Install and Trust RsProxy CA Certificate",
           style: subtitleStyle, textAlign: TextAlign.center),
       const SizedBox(height: 3),
       Text(
           isCN
-              ? "ProxyPin 可以动态解密 HTTPS 流量以展示原始请求/响应。"
-              : "ProxyPin can decrypt encrypted traffic on the fly and enable to see raw HTTPS requests and responses.",
+              ? "RsProxy 可以动态解密 HTTPS 流量以展示原始请求/响应。"
+              : "RsProxy can decrypt encrypted traffic on the fly and enable to see raw HTTPS requests and responses.",
           style: subtitleStyle,
           textAlign: TextAlign.center),
       const SizedBox(height: 45),
@@ -294,7 +294,7 @@ class _AutomaticInstallState extends State<_AutomaticInstall> {
               Row(children: [
                 Text('Name', style: infoLabelStyle),
                 Expanded(
-                    child: SelectableText(certDetails!.subject['2.5.4.3'] ?? 'ProxyPin CA',
+                    child: SelectableText(certDetails!.subject['2.5.4.3'] ?? 'RsProxy CA',
                         style: infoValueStyle, textAlign: TextAlign.right)),
               ]),
               const SizedBox(height: 6),

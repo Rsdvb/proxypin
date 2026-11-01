@@ -1,11 +1,11 @@
 import 'dart:io';
 
+import 'package:proxypin/utils/app_identity.dart';
+
 abstract class Constants {
-  static const githubUrl = "https://github.com/wanghongenpin/proxypin";
-  static const githubReleasesApiUrl =
-      "https://api.github.com/repos/wanghongenpin/proxypin/releases";
-  static const githubLatestReleaseUrl =
-      "https://github.com/wanghongenpin/proxypin/releases/latest";
+  static const githubUrl = AppIdentity.repositoryUrl;
+  static const githubReleasesApiUrl = "${AppIdentity.repositoryApiUrl}/releases";
+  static const githubLatestReleaseUrl = "${AppIdentity.repositoryUrl}/releases/latest";
 
   static const String ignoreReleaseVersionKey = "ignored_release_version";
 

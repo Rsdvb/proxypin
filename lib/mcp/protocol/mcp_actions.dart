@@ -1067,7 +1067,7 @@ class McpActions {
 
   McpTool _getCertificateStatus() => McpTool(
         name: 'get_certificate_status',
-        description: 'Get whether the ProxyPin root CA is installed/trusted on this machine (desktop).',
+        description: 'Get whether the RsProxy root CA is installed/trusted on this machine (desktop).',
         inputSchema: {'type': 'object', 'properties': {}},
         handler: (_) async {
           if (certStatusProvider != null) {

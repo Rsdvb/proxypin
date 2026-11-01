@@ -75,7 +75,7 @@ class NetworkConditionInterceptor extends Interceptor {
       final resp = HttpResponse(HttpStatus.newStatus(502, 'Weak Network: Packet Loss'),
           protocolVersion: request.protocolVersion)
         ..request = request;
-      resp.headers.set('X-ProxyPin-Weak-Network', 'loss');
+      resp.headers.set('X-RsProxy-Weak-Network', 'loss');
       return resp;
     }
 

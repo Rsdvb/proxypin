@@ -53,7 +53,7 @@ class CertInstaller {
 
   /// 检查证书是否已安装
   static Future<bool> isCertInstalled(File filePath, X509CertificateData caCert) async {
-    String commonName = caCert.subject['2.5.4.3'] ?? 'ProxyPin CA';
+    String commonName = caCert.subject['2.5.4.3'] ?? 'RsProxy CA';
     String? sha1 = caCert.sha1Thumbprint;
     logger.d('Checking if certificate is installed: CN=$commonName, SHA1=$sha1');
     try {

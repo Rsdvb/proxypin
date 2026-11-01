@@ -16,6 +16,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:proxypin/ui/configuration.dart';
+import 'package:proxypin/utils/app_identity.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:proxypin/l10n/app_localizations.dart';
 
@@ -39,15 +40,14 @@ class _AboutState extends State<About> {
     AppLocalizations localizations = AppLocalizations.of(context)!;
     final bool isCN = Localizations.localeOf(context) == const Locale.fromSubtags(languageCode: 'zh');
 
-    String gitHub = "https://github.com/wanghongenpin/proxypin";
-    final String sponsorUrl = "https://github.com/sponsors/wanghongenpin";
-    final String downloadUrl = isCN ? "https://gitee.com/wanghongenpin/proxypin/releases" : "$gitHub/releases";
+    const String gitHub = AppIdentity.repositoryUrl;
+    const String downloadUrl = "$gitHub/releases";
 
     return Scaffold(
         appBar: AppBar(title: Text(localizations.about, style: const TextStyle(fontSize: 16)), centerTitle: true),
         body: ListView(padding: const EdgeInsets.all(12), children: [
           const SizedBox(height: 6),
-          Center(child: Text("ProxyPin", style: Theme.of(context).textTheme.headlineSmall)),
+          Center(child: Text("RsProxy", style: Theme.of(context).textTheme.headlineSmall)),
           const SizedBox(height: 10),
           Center(
               child: Padding(
@@ -115,12 +115,11 @@ class _AboutState extends State<About> {
                       );
                     }),
                 Divider(height: 0, thickness: 0.4, color: Theme.of(context).dividerColor.withValues(alpha: 0.22)),
-                // Sponsor / Donate entry
                 ListTile(
-                  title: Text(localizations.sponsorDonate),
-                  subtitle: Text(localizations.sponsorSupport, style: const TextStyle(fontSize: 12)),
-                  trailing: const Icon(Icons.favorite, color: Colors.redAccent, size: 22),
-                  onTap: () => _showSponsorDialog(localizations, sponsorUrl),
+                  title: Text(isCN ? "基于 ${AppIdentity.upstreamName}" : "Based on ${AppIdentity.upstreamName}"),
+                  subtitle: const Text("Apache-2.0", style: TextStyle(fontSize: 12)),
+                  trailing: const Icon(Icons.open_in_new, size: 22),
+                  onTap: () => _safeLaunch(Uri.parse(AppIdentity.upstreamUrl)),
                 ),
               ]))
         ]));
@@ -128,51 +127,5 @@ class _AboutState extends State<About> {
 
   Future<void> _safeLaunch(Uri uri) async {
     await launchUrl(uri, mode: LaunchMode.externalApplication);
-  }
-
-  void _showSponsorDialog(AppLocalizations l10n, String sponsorUrl) {
-    bool isCN = Localizations.localeOf(context) == const Locale.fromSubtags(languageCode: 'zh');
-
-    List<Widget> sponsors = [
-      ListTile(
-        onTap: () => _safeLaunch(Uri.parse("https://afdian.com/a/proxypin")),
-        contentPadding: EdgeInsets.zero,
-        leading: const Icon(Icons.favorite, color: Colors.pinkAccent),
-        title: Text(l10n.sponsorAfdian),
-      )
-    ];
-
-    final coffee = ListTile(
-      contentPadding: EdgeInsets.zero,
-      leading: const Icon(Icons.coffee, color: Colors.brown),
-      title: Text('Buy Me a Coffee'),
-      onTap: () => _safeLaunch(Uri.parse("https://buymeacoffee.com/proxypin")),
-    );
-    if (isCN) {
-      sponsors.add(coffee);
-    } else {
-      sponsors.insert(0, coffee);
-    }
-
-    showDialog(
-      context: context,
-      builder: (ctx) {
-        return AlertDialog(
-          title: Text(l10n.sponsorDonate),
-          contentPadding: const EdgeInsets.only(left: 20, top: 10, right: 20, bottom: 10),
-          content: SizedBox(
-            width: 340,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [Text(l10n.sponsorThanks), const SizedBox(height: 12), ...sponsors],
-            ),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.of(ctx).pop(), child: Text(l10n.close)),
-          ],
-        );
-      },
-    );
   }
 }

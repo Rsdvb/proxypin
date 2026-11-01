@@ -218,7 +218,7 @@ class DesktopRequestListState extends State<DesktopRequestListWidget> with Autom
         searchKey.currentState?.searchDialog();
         break;
       case _RequestListMenuAction.export:
-        export('ProxyPin_${DateTime.now().dateFormat()}.har');
+        export('RsProxy_${DateTime.now().dateFormat()}.har');
         break;
       case _RequestListMenuAction.repeat:
         repeatAllRequests();

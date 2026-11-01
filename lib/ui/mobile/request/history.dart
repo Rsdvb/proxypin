@@ -300,7 +300,7 @@ class _MobileHistoryState extends State<MobileHistory> {
   Future<void> export(HistoryStorage storage, HistoryItem item, {Offset? offset}) async {
     //文件名称
     String fileName =
-        '${item.name.contains("ProxyPin") ? '' : 'ProxyPin'}${item.name}.har'.replaceAll(" ", "_").replaceAll(":", "_");
+        '${item.name.contains("RsProxy") ? '' : 'RsProxy'}${item.name}.har'.replaceAll(" ", "_").replaceAll(":", "_");
     //获取请求
     List<HttpRequest> requests = await storage.getRequests(item);
     var json = await Har.writeJson(requests, title: item.name);

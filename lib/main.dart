@@ -101,7 +101,7 @@ class FluentApp extends StatelessWidget {
         valueListenable: appConfiguration.globalChange,
         builder: (_, current, __) {
           return MaterialApp(
-            title: 'ProxyPin',
+            title: 'RsProxy',
             debugShowCheckedModeBanner: false,
             navigatorKey: navigatorHelper.navigatorKey,
             theme: theme(Brightness.light),

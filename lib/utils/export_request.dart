@@ -77,11 +77,11 @@ void exportHar(HttpRequest request) async {
   var har = {
     "log": {
       "version": "1.2",
-      "creator": {"name": "ProxyPin", "version": AppConfiguration.version},
+      "creator": {"name": "RsProxy", "version": AppConfiguration.version},
       "pages": [
         {
-          "title": "ProxyPin Har Export",
-          "id": "ProxyPin",
+          "title": "RsProxy Har Export",
+          "id": "RsProxy",
           "startedDateTime": request.requestTime.toUtc().toIso8601String(),
           "pageTimings": {"onContentLoad": -1, "onLoad": -1}
         }

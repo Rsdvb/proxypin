@@ -330,7 +330,7 @@ class _HistoryListState extends State<_HistoryListWidget> {
   Future<void> export(HistoryItem item) async {
     //文件名称
     String fileName =
-        '${item.name.contains("ProxyPin") ? '' : 'ProxyPin'}${item.name}.har'.replaceAll(" ", "_").replaceAll(":", "_");
+        '${item.name.contains("RsProxy") ? '' : 'RsProxy'}${item.name}.har'.replaceAll(" ", "_").replaceAll(":", "_");
 
     final String? path = await Platforms.saveFileAdaptive(fileName: fileName);
     if (path == null) {

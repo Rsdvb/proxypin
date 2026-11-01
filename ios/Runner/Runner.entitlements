@@ -14,7 +14,7 @@
 	</array>
 	<key>com.apple.security.application-groups</key>
 	<array>
-		<string>group.com.proxy.pin</string>
+		<string>group.io.github.rsdvb.rsproxy</string>
 	</array>
 	<key>com.apple.security.network.client</key>
 	<true/>

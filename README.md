@@ -1,50 +1,27 @@
-# ProxyPin
+# RsProxy
 
-English | [中文](README_CN.md)
-## Open source free traffic capture HTTP(S)，Support Windows、Mac、Android、IOS、Linux Full platform system
+RsProxy 是一个面向 Windows 和 iOS 的 HTTP(S) 抓包与调试工具，基于 [ProxyPin](https://github.com/wanghongenpin/proxypin) 修改而来。
 
-You can use it to intercept, inspect & rewrite HTTP(S) traffic, Support capturing Flutter app traffic, ProxyPin is based on Flutter develop, and the UI is beautiful
-and easy to use.
+## 和 ProxyPin 的主要区别
 
-## Features
-* Mobile scan code connection: no need to manually configure WiFi proxy, including configuration synchronization. All terminals can scan codes to connect and forward traffic to each other.
-* Domain name filtering: Only intercept the traffic you need, and do not intercept other traffic to avoid interference with other applications.
-* Search: Search requests according to keywords, response types and other conditions
-* Script: Support writing JavaScript scripts to process requests or responses.
-* Request Rewrite: Support redirection, support replacement of request or response message, and can also modify request or response according to the increase.
-* Request Mapping: Do not request remote services, use local configuration or scripts for response
-* Request Decryption: Configure AES decryption key to automatically decrypt HTTP message body
-* Request Blocking: Support blocking requests according to URL, and do not send requests to the server.
-* History: Automatically save the captured traffic data for easy backtracking and viewing. Support HAR format export and import.
-* Others: Favorites, toolbox, common encoding tools, as well as QR codes, regular expressions, etc.
+- **只解密白名单域名。** iOS 上不在名单里的流量不经过 App，省电，也更不容易被系统杀后台。
+- **根证书在本机生成。** 不再内置公开的根证书，每台设备使用自己的私钥。
+- **Windows 性能优化。** 查找连接所属进程改用 Win32 接口，新连接不再等待 netstat。
+- **内存有上限。** 大响应和长连接不会让内存无限增长，客户端读不过来时会暂停读取源站。
+- **崩溃有记录。** Windows 崩溃写入 `%LOCALAPPDATA%\RsProxy\crash.log`。
 
-**Mac will prompt untrusted developers when first opened, you need to go to System Preferences-Security & Privacy-Allow any source.**
+## 构建
 
-## Sponsors
+使用 Flutter 3.47.9：
 
-If ProxyPin is helpful to you, you are welcome to support us in the following ways to help the project develop in the long term:
+```bash
+flutter pub get
+flutter build windows --release
+flutter build ios --release --no-codesign
+```
 
-* [Buy Me A Coffee](https://buymeacoffee.com/proxypin)
-* [AFDIAN](https://afdian.com/a/proxypin)
-* Submit feedback and suggestions to help us improve
-* Contribute code or documentation to the project
+GitHub Actions 会自动编译 Windows 版本和未签名的 IPA，配置见 `.github/workflows/build.yml`。
 
-**Your support will be used for project maintenance, feature development, and user experience optimization. Thank you very much!**
+## 许可
 
-## Downloads
-
-Github Releases: https://github.com/wanghongenpin/proxypin/releases
-
-iOS App Store：https://apps.apple.com/app/proxypin/id6450932949
-
-Android Google Play：https://play.google.com/store/apps/details?id=com.network.proxy
-
-TG: https://t.me/proxypin_en
-
-**We will continue to improve the features and experience, as well as optimize the UI.**
-
-<img alt="image"  width="580px" height="420px"  src="https://github.com/user-attachments/assets/6c1345ab-c95c-415d-ac59-470c764b59a2">.<img alt="image"  height="500px" src="https://github.com/user-attachments/assets/3c5572b0-a9e5-497c-8b42-f935e836c164">
-
-
-### Powered by
-[![JetBrains logo.](https://resources.jetbrains.com/storage/products/company/brand/logos/jetbrains.svg)](https://jb.gg/OpenSource)
+代码以 Apache License 2.0 发布，见 [LICENSE](LICENSE) 和 [NOTICE](NOTICE)。

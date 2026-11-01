@@ -189,7 +189,7 @@ class DesktopUpdateService {
 
     final client = HttpClient();
     _httpClient = client;
-    client.userAgent = 'ProxyPin-Updater';
+    client.userAgent = 'RsProxy-Updater';
 
     final request = await client.getUrl(uri);
     final response = await request.close();

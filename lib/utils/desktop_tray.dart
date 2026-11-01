@@ -27,7 +27,7 @@ class DesktopTrayManager with TrayListener {
     _initialized = true;
     trayManager.addListener(this);
     await trayManager.setIcon('assets/icon.ico');
-    await trayManager.setToolTip('ProxyPin');
+    await trayManager.setToolTip('RsProxy');
     await trayManager.setContextMenu(
       Menu(
         items: [

@@ -679,12 +679,6 @@ class AppLocalizationsZh extends AppLocalizations {
   String get generateCADescribe => '您确定要生成新的根证书吗? 如果确认，\n则需要重新安装并信任新的证书';
 
   @override
-  String get resetDefaultCA => '重置默认根证书';
-
-  @override
-  String get resetDefaultCADescribe => '确定要重置为默认根证书吗? ProxyPin默认\n根证书对所有用户都是相同的.';
-
-  @override
   String get exportCaP12 => '导出根证书 (.p12)';
 
   @override
@@ -793,7 +787,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get captureDetail => '抓包详情';
 
   @override
-  String get proxyPinSoftware => 'ProxyPin全平台开源抓包软件';
+  String get proxyPinSoftware => 'RsProxy全平台开源抓包软件';
 
   @override
   String get prompt => '提示';
@@ -1090,7 +1084,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get appUpdateDialogTitle => '有可用更新';
 
   @override
-  String get appUpdateUpdateMsg => 'ProxyPin 的新版本现已推出。您想现在更新吗？';
+  String get appUpdateUpdateMsg => 'RsProxy 的新版本现已推出。您想现在更新吗？';
 
   @override
   String get appUpdateCurrentVersionLbl => '当前版本';
@@ -1136,18 +1130,6 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get openNewWindow => '新窗口打开';
-
-  @override
-  String get sponsorDonate => '赞助 / 捐赠';
-
-  @override
-  String get sponsorSupport => '支持项目持续开发';
-
-  @override
-  String get sponsorThanks => '感谢支持开源项目，可选择以下任意方式，帮助项目长期发展';
-
-  @override
-  String get sponsorAfdian => '爱发电赞助';
 
   @override
   String get privacyPolicy => '隐私协议';
@@ -1269,7 +1251,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String mcpHintRun(String client) {
-    return '在终端中运行此命令，将 ProxyPin MCP 添加到 $client。';
+    return '在终端中运行此命令，将 RsProxy MCP 添加到 $client。';
   }
 
   @override
@@ -1277,7 +1259,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get mcpAboutText =>
-      'MCP (Model Context Protocol) 允许像 Claude 这样的 AI 助手与 ProxyPin 交互。AI 可以读取捕获的 HTTP 流量、创建调试规则（Map Local、Map Remote、断点），并帮助分析网络问题。';
+      'MCP (Model Context Protocol) 允许像 Claude 这样的 AI 助手与 RsProxy 交互。AI 可以读取捕获的 HTTP 流量、创建调试规则（Map Local、Map Remote、断点），并帮助分析网络问题。';
 
   @override
   String get mcpLearnMore => '了解有关 MCP 的更多信息';
@@ -2129,12 +2111,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get generateCADescribe => '確定要產生新的根憑證嗎？需重新安裝並信任新憑證。';
 
   @override
-  String get resetDefaultCA => '重置預設根憑證';
-
-  @override
-  String get resetDefaultCADescribe => '確定要重置為預設根憑證嗎？預設憑證對所有使用者相同。';
-
-  @override
   String get exportCaP12 => '匯出根憑證 (.p12)';
 
   @override
@@ -2230,7 +2206,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get captureDetail => '抓包詳情';
 
   @override
-  String get proxyPinSoftware => 'ProxyPin全平台開源抓包軟體';
+  String get proxyPinSoftware => 'RsProxy全平台開源抓包軟體';
 
   @override
   String get prompt => '提示';
@@ -2492,7 +2468,7 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
   String get appUpdateDialogTitle => '有可用更新';
 
   @override
-  String get appUpdateUpdateMsg => 'ProxyPin 有新版本，現在更新嗎？';
+  String get appUpdateUpdateMsg => 'RsProxy 有新版本，現在更新嗎？';
 
   @override
   String get appUpdateCurrentVersionLbl => '目前版本';
@@ -2526,18 +2502,6 @@ class AppLocalizationsZhHant extends AppLocalizationsZh {
 
   @override
   String get openNewWindow => '新視窗開啟';
-
-  @override
-  String get sponsorDonate => '贊助 / 捐贈';
-
-  @override
-  String get sponsorSupport => '支持項目持續開發';
-
-  @override
-  String get sponsorThanks => '感謝支持，可用以下方式協助項目發展。';
-
-  @override
-  String get sponsorAfdian => '愛發電贊助';
 
   @override
   String get privacyPolicy => '隱私協議';

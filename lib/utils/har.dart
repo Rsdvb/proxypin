@@ -34,7 +34,7 @@ class Har {
     Map har = {
       "startedDateTime": request.requestTime.toUtc().toIso8601String(), // 请求发出的时间(ISO 8601)
       "time": request.response?.responseTime.difference(request.requestTime).inMilliseconds ?? -1, // 请求耗时，单位毫秒
-      "pageref": "ProxyPin", // 页面标识
+      "pageref": "RsProxy", // 页面标识
       "_id": request.requestId, // 页面标识
       '_app': request.processInfo?.toJson(),
       "request": {
@@ -82,7 +82,7 @@ class Har {
     return {
       "startedDateTime": request.requestTime.toUtc().toIso8601String(),
       "time": -1,
-      "pageref": "ProxyPin",
+      "pageref": "RsProxy",
       "_id": request.requestId,
       "_phase": "request",
       '_app': request.processInfo?.toJson(),
@@ -108,7 +108,7 @@ class Har {
     return {
       "startedDateTime": request.requestTime.toUtc().toIso8601String(),
       "time": request.response?.responseTime.difference(request.requestTime).inMilliseconds ?? -1,
-      "pageref": "ProxyPin",
+      "pageref": "RsProxy",
       "_id": request.requestId,
       "_phase": "response",
       '_app': request.processInfo?.toJson(),
@@ -146,14 +146,14 @@ class Har {
   static Future<String> writeJson(List<HttpRequest> list, {String title = ''}) async {
     var entries = _entries(list);
     Map har = {};
-    title = title.contains("ProxyPin") ? title : "[ProxyPin]$title";
+    title = title.contains("RsProxy") ? title : "[RsProxy]$title";
     har["log"] = {
       "version": "1.2",
-      "creator": {"name": "ProxyPin", "version": AppConfiguration.version},
+      "creator": {"name": "RsProxy", "version": AppConfiguration.version},
       "pages": [
         {
           "title": title,
-          "id": "ProxyPin",
+          "id": "RsProxy",
           "startedDateTime": list.firstOrNull?.requestTime.toUtc().toIso8601String(),
           "pageTimings": {"onContentLoad": -1, "onLoad": -1}
         }

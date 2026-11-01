@@ -77,7 +77,7 @@ class Multipart {
 
   /// 生成一个新的 boundary，附带时间戳和随机串，尽量避免与 body 内容冲突
   static String newBoundary() {
-    final sb = StringBuffer('----ProxyPin')
+    final sb = StringBuffer('----RsProxy')
       ..write(DateTime.now().millisecondsSinceEpoch);
     for (int i = 0; i < 16; i++) {
       sb.write(_boundaryAlphabet[_random.nextInt(_boundaryAlphabet.length)]);

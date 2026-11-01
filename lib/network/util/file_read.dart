@@ -9,7 +9,7 @@ class FileRead {
 
   static Future<File> homeDir() async {
     if (userHome != null) {
-      return File("${userHome!}${Platform.pathSeparator}.proxypin");
+      return File("${userHome!}${Platform.pathSeparator}.rsproxy");
     }
     if (Platforms.isDesktop()) {
       userHome = Platform.environment['HOME'] ?? Platform.environment['USERPROFILE'];
@@ -18,7 +18,7 @@ class FileRead {
     }
 
     var separator = Platform.pathSeparator;
-    return File("${userHome!}$separator.proxypin");
+    return File("${userHome!}$separator.rsproxy");
   }
 
   static Future<String> readAsString(String file) async {

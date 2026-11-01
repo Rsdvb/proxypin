@@ -30,7 +30,7 @@ exit 0
       var codexToml = File('$codexDir${Platform.pathSeparator}config.toml');
       await codexToml.writeAsString('''
 [mcp_servers.proxypin]
-command = "/Applications/ProxyPin.app"
+command = "/Applications/RsProxy.app"
 args = ["--mcp-stdio"]
 
 [mcp_servers.other]
@@ -45,7 +45,7 @@ command = "xxx"
         'mcpServers': {
           'proxypin': {
             'type': 'stdio',
-            'command': '/Applications/ProxyPin.app',
+            'command': '/Applications/RsProxy.app',
             'args': ['--mcp-stdio']
           },
           'other': {'type': 'stdio', 'command': 'xxx'}
@@ -89,7 +89,7 @@ command = "xxx"
       // ---- Codex TOML：桌面 proxypin 段保留，新增 mobile 段且唯一 ----
       var toml = await codexToml.readAsString();
       expect(toml, contains('[mcp_servers.proxypin]'), reason: 'desktop section preserved');
-      expect(toml, contains('/Applications/ProxyPin.app'), reason: 'desktop command preserved');
+      expect(toml, contains('/Applications/RsProxy.app'), reason: 'desktop command preserved');
       expect(toml, contains('[mcp_servers.other]'), reason: 'unrelated section preserved');
       expect('[mcp_servers.proxypin_mobile]'.allMatches(toml).length, 1,
           reason: 'mobile section unique across reruns');

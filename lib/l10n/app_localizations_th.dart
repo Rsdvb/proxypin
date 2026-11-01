@@ -147,11 +147,11 @@ class AppLocalizationsTh extends AppLocalizations {
   String get minimizeToTrayTitle => 'ย่อไปที่ถาดเมื่อปิด';
 
   @override
-  String get minimizeToTraySubtitle => 'Closing the window will keep ProxyPin running and hide it to the system tray.';
+  String get minimizeToTraySubtitle => 'Closing the window will keep RsProxy running and hide it to the system tray.';
 
   @override
   String get trayClosePromptContent =>
-      'Closing the window will keep ProxyPin running in the system tray. Do you want to minimize it now?';
+      'Closing the window will keep RsProxy running in the system tray. Do you want to minimize it now?';
 
   @override
   String get trayCloseExitAnyway => 'Exit anyway';
@@ -682,12 +682,6 @@ class AppLocalizationsTh extends AppLocalizations {
   String get generateCADescribe => 'ต้องการสร้างใบรับรองรากใหม่หรือไม่?';
 
   @override
-  String get resetDefaultCA => 'รีเซ็ตใบรับรองรากเริ่มต้น';
-
-  @override
-  String get resetDefaultCADescribe => 'ต้องการรีเซ็ตใบรับรองรากเริ่มต้นหรือไม่?';
-
-  @override
   String get exportCaP12 => 'ส่งออกใบรับรองราก (.p12)';
 
   @override
@@ -798,7 +792,7 @@ class AppLocalizationsTh extends AppLocalizations {
   String get captureDetail => 'Capture Detail';
 
   @override
-  String get proxyPinSoftware => 'ซอฟต์แวร์จับแพ็กเก็ตโอเพนซอร์ส ProxyPin';
+  String get proxyPinSoftware => 'ซอฟต์แวร์จับแพ็กเก็ตโอเพนซอร์ส RsProxy';
 
   @override
   String get prompt => 'Prompt';
@@ -1096,7 +1090,7 @@ class AppLocalizationsTh extends AppLocalizations {
   String get appUpdateDialogTitle => 'Update Available';
 
   @override
-  String get appUpdateUpdateMsg => 'A new version of ProxyPin is available. Would you like to update now?';
+  String get appUpdateUpdateMsg => 'A new version of RsProxy is available. Would you like to update now?';
 
   @override
   String get appUpdateCurrentVersionLbl => 'Current Version';
@@ -1142,18 +1136,6 @@ class AppLocalizationsTh extends AppLocalizations {
 
   @override
   String get openNewWindow => 'เปิดหน้าต่างใหม่';
-
-  @override
-  String get sponsorDonate => 'สนับสนุน / บริจาค';
-
-  @override
-  String get sponsorSupport => 'สนับสนุนการพัฒนา';
-
-  @override
-  String get sponsorThanks => 'ขอบคุณที่สนับสนุนโครงการโอเพนซอร์สนี้';
-
-  @override
-  String get sponsorAfdian => 'AFDIAN';
 
   @override
   String get privacyPolicy => 'นโยบายความเป็นส่วนตัว';
@@ -1276,7 +1258,7 @@ class AppLocalizationsTh extends AppLocalizations {
 
   @override
   String mcpHintRun(String client) {
-    return 'Run this command in Terminal to add ProxyPin MCP to $client.';
+    return 'Run this command in Terminal to add RsProxy MCP to $client.';
   }
 
   @override
@@ -1284,7 +1266,7 @@ class AppLocalizationsTh extends AppLocalizations {
 
   @override
   String get mcpAboutText =>
-      'MCP (Model Context Protocol) lets AI assistants like Claude interact with ProxyPin. AI can read captured HTTP traffic, create debugging rules (Map Local, Map Remote, Breakpoints), and help analyze network issues.';
+      'MCP (Model Context Protocol) lets AI assistants like Claude interact with RsProxy. AI can read captured HTTP traffic, create debugging rules (Map Local, Map Remote, Breakpoints), and help analyze network issues.';
 
   @override
   String get mcpLearnMore => 'Learn more about MCP';

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:proxypin/l10n/app_localizations.dart';
 import 'package:proxypin/ui/app_update/app_update_repository.dart';
 import 'package:proxypin/ui/configuration.dart';
+import 'package:proxypin/utils/app_identity.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class DesktopAbout extends StatefulWidget {
@@ -21,7 +22,7 @@ class _AppUpdateStateChecking extends State<DesktopAbout> {
   @override
   Widget build(BuildContext context) {
     bool isCN = Localizations.localeOf(context) == const Locale.fromSubtags(languageCode: 'zh');
-    String gitHub = "https://github.com/wanghongenpin/proxypin";
+    const String gitHub = AppIdentity.repositoryUrl;
 
     return AlertDialog(
       titlePadding: const EdgeInsets.only(left: 20, top: 10, right: 15),
@@ -36,7 +37,7 @@ class _AppUpdateStateChecking extends State<DesktopAbout> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text("ProxyPin", style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600, letterSpacing: .5)),
+              const Text("RsProxy", style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600, letterSpacing: .5)),
               const SizedBox(height: 10),
               Padding(
                   padding: const EdgeInsets.only(left: 10, right: 10),
@@ -78,8 +79,7 @@ class _AppUpdateStateChecking extends State<DesktopAbout> {
                   dense: true,
                   title: Text(isCN ? "下载地址" : "Download"),
                   trailing: const Icon(Icons.open_in_new, size: 21),
-                  onTap: () => _safeLaunch(
-                      Uri.parse(isCN ? "https://gitee.com/wanghongenpin/proxypin/releases" : "$gitHub/releases"))),
+                  onTap: () => _safeLaunch(Uri.parse("$gitHub/releases"))),
               ListTile(
                   dense: true,
                   title: Text(localizations.privacyPolicy),
@@ -100,10 +100,10 @@ class _AppUpdateStateChecking extends State<DesktopAbout> {
                   }),
               ListTile(
                 dense: true,
-                title: Text(localizations.sponsorDonate),
-                subtitle: Text(localizations.sponsorSupport, style: const TextStyle(fontSize: 11)),
-                trailing: const Icon(Icons.favorite, color: Colors.redAccent, size: 21),
-                onTap: () => _showSponsorDialog(),
+                title: Text(isCN ? "基于 ${AppIdentity.upstreamName}" : "Based on ${AppIdentity.upstreamName}"),
+                subtitle: const Text("Apache-2.0", style: TextStyle(fontSize: 11)),
+                trailing: const Icon(Icons.open_in_new, size: 21),
+                onTap: () => _safeLaunch(Uri.parse(AppIdentity.upstreamUrl)),
               ),
             ],
           )),
@@ -112,54 +112,5 @@ class _AppUpdateStateChecking extends State<DesktopAbout> {
 
   Future<void> _safeLaunch(Uri uri) async {
     await launchUrl(uri, mode: LaunchMode.externalApplication);
-  }
-
-  void _showSponsorDialog() {
-    bool isCN = Localizations.localeOf(context) == const Locale.fromSubtags(languageCode: 'zh');
-    List<Widget> sponsors = [
-      ListTile(
-        onTap: () => _safeLaunch(Uri.parse("https://afdian.com/a/proxypin")),
-        contentPadding: EdgeInsets.zero,
-        leading: const Icon(Icons.favorite, color: Colors.pinkAccent),
-        title: Text(localizations.sponsorAfdian),
-      )
-    ];
-
-    final coffee = ListTile(
-      contentPadding: EdgeInsets.zero,
-      leading: const Icon(Icons.coffee, color: Colors.brown),
-      title: Text('Buy Me a Coffee'),
-      onTap: () => _safeLaunch(Uri.parse("https://buymeacoffee.com/proxypin")),
-    );
-    if (isCN) {
-      sponsors.add(coffee);
-    } else {
-      sponsors.insert(0, coffee);
-    }
-
-    showDialog(
-      context: context,
-      builder: (ctx) {
-        return AlertDialog(
-          title: Text(localizations.sponsorDonate),
-          contentPadding: const EdgeInsets.only(left: 20, top: 10, right: 20, bottom: 10),
-          content: SizedBox(
-            width: 340,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(localizations.sponsorThanks, style: const TextStyle(height: 1.4)),
-                const SizedBox(height: 16),
-                ...sponsors
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.of(ctx).pop(), child: Text(localizations.close)),
-          ],
-        );
-      },
-    );
   }
 }

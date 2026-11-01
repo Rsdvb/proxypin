@@ -99,7 +99,7 @@ void main() {
     const int proxyPort = 19096;
     const int originPort = 18082;
     const String originBody = '{"origin":"RAW_BODY_FROM_SERVER"}';
-    const String replacedBody = '{"rewritten":"ProxyPin_Script_Fired"}';
+    const String replacedBody = '{"rewritten":"RsProxy_Script_Fired"}';
 
     final origin = await ServerSocket.bind(InternetAddress.loopbackIPv4, originPort);
     origin.listen((socket) {

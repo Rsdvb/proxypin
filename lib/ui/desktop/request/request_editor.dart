@@ -496,7 +496,7 @@ class _HttpState extends State<_HttpWidget> {
     _bodyLanguage = _resolveLanguage(widget.message);
     _loadFormData(widget.message);
     if (widget.message?.headers == null && !widget.readOnly) {
-      initHeader["User-Agent"] = ["ProxyPin/${AppConfiguration.version}"];
+      initHeader["User-Agent"] = ["RsProxy/${AppConfiguration.version}"];
       initHeader["Accept"] = ["*/*"];
       return;
     }

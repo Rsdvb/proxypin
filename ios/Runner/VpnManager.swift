@@ -85,9 +85,9 @@ extension VpnManager{
     fileprivate func createProviderManager() -> NETunnelProviderManager {
         let manager = NETunnelProviderManager()
         let conf = NETunnelProviderProtocol()
-        conf.serverAddress = "ProxyPin"
+        conf.serverAddress = "RsProxy"
         manager.protocolConfiguration = conf
-        manager.localizedDescription = "ProxyPin"
+        manager.localizedDescription = "RsProxy"
         return manager
     }
 

@@ -78,11 +78,10 @@ class AppUpdateRepository {
 
     var body = jsonDecode(response.body) as List;
     final releases = body.map((e) => GithubReleaseParser.parse(e as Map<String, dynamic>));
-    late RemoteVersionEntity latest;
-    if (includePreReleases) {
-      latest = releases.first;
-    } else {
-      latest = releases.firstWhere((e) => e.preRelease == false);
+    // 仓库还没有发布过版本时列表为空，不算错误
+    final latest = includePreReleases ? releases.firstOrNull : releases.where((e) => e.preRelease == false).firstOrNull;
+    if (latest == null) {
+      return null;
     }
 
     logger.d("[AppUpdate] latest version: $latest");

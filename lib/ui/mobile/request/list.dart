@@ -173,7 +173,7 @@ class RequestListState extends State<RequestListWidget> {
   //导出har或文件夹
   Future<void> export(BuildContext context, String title) async {
     var view = currentView()!;
-    var folderName = '${title.contains("ProxyPin") ? '' : 'ProxyPin'}$title'.replaceAll(" ", "_").replaceAll(":", "_");
+    var folderName = '${title.contains("RsProxy") ? '' : 'RsProxy'}$title'.replaceAll(" ", "_").replaceAll(":", "_");
 
     showExportDialog(context, view.toList(), folderName);
   }

@@ -1,8 +1,8 @@
-display_name: ProxyPin
-publisher_display_name: ProxyPin
+display_name: RsProxy
+publisher_display_name: RsProxy
 publisher: CN=8EC6F6C3-E66C-4189-8421-A6F2A451F552
-identity_name: ProxyPin.ProxyPin
-publisher_url: https://github.com/wanghongenpin/proxypin
+identity_name: RsProxy.RsProxy
+publisher_url: https://github.com/Rsdvb/proxypin
 msix_version: 1.4.0.0
 logo_path: D:\IdeaProjects\proxypin\assets\icon.png
 capabilities: internetClient

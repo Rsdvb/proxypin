@@ -1,0 +1,12 @@
+RsProxy
+
+RsProxy 基于 ProxyPin 修改而来，并做了大量改动。
+This product is a modified version of ProxyPin.
+
+ProxyPin
+Copyright 2023 Hongen Wang
+https://github.com/wanghongenpin/proxypin
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+RsProxy 与 ProxyPin 及其作者没有关联。
+RsProxy is not affiliated with or endorsed by ProxyPin or its author.

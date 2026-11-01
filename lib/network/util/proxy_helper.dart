@@ -171,7 +171,7 @@ class ProxyHelper {
     const String fileMimeType = 'application/x-x509-ca-cert';
     var response = HttpResponse(HttpStatus.ok);
     response.headers.set(HttpHeaders.CONTENT_TYPE, fileMimeType);
-    response.headers.set("Content-Disposition", 'inline;filename=ProxyPinCA.crt');
+    response.headers.set("Content-Disposition", 'inline;filename=RsProxyCA.crt');
     response.headers.set("Connection", 'close');
 
     var caFile = await CertificateManager.certificateFile();

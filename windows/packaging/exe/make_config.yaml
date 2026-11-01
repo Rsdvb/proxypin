@@ -1,9 +1,9 @@
 app_id: 502cbca5-a7f1-4f8f-894d-9820bac2e36f
-publisher: ProxyPin
-publisher_url: https://github.com/wanghongenpin/proxypin
-display_name: ProxyPin
+publisher: RsProxy
+publisher_url: https://github.com/Rsdvb/proxypin
+display_name: RsProxy
 create_desktop_icon: true
-install_dir_name: "{autopf64}\\ProxyPin"
+install_dir_name: "{autopf64}\\RsProxy"
 setup_icon_file: windows\runner\resources\app_icon.ico
 locales:
   - en

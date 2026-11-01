@@ -385,13 +385,13 @@ abstract class AppLocalizations {
   /// No description provided for @minimizeToTraySubtitle.
   ///
   /// In en, this message translates to:
-  /// **'Closing the window will keep ProxyPin running and hide it to the system tray.'**
+  /// **'Closing the window will keep RsProxy running and hide it to the system tray.'**
   String get minimizeToTraySubtitle;
 
   /// No description provided for @trayClosePromptContent.
   ///
   /// In en, this message translates to:
-  /// **'Closing the window will keep ProxyPin running in the system tray. Do you want to minimize it now?'**
+  /// **'Closing the window will keep RsProxy running in the system tray. Do you want to minimize it now?'**
   String get trayClosePromptContent;
 
   /// No description provided for @trayCloseExitAnyway.
@@ -1426,18 +1426,6 @@ abstract class AppLocalizations {
   /// **'Are you sure you want to generate a new root certificate? If confirmed,\nYou need to reinstall and trust the new certificate'**
   String get generateCADescribe;
 
-  /// No description provided for @resetDefaultCA.
-  ///
-  /// In en, this message translates to:
-  /// **'Reset Default Root Certificate'**
-  String get resetDefaultCA;
-
-  /// No description provided for @resetDefaultCADescribe.
-  ///
-  /// In en, this message translates to:
-  /// **'Are you sure you want to reset to the default root certificate?\nProxyPin default root certificate is the same for all users.'**
-  String get resetDefaultCADescribe;
-
   /// No description provided for @exportCaP12.
   ///
   /// In en, this message translates to:
@@ -1651,7 +1639,7 @@ abstract class AppLocalizations {
   /// No description provided for @proxyPinSoftware.
   ///
   /// In en, this message translates to:
-  /// **'ProxyPin Open source traffic capture software for all platforms'**
+  /// **'RsProxy Open source traffic capture software for all platforms'**
   String get proxyPinSoftware;
 
   /// No description provided for @prompt.
@@ -2233,7 +2221,7 @@ abstract class AppLocalizations {
   /// No description provided for @appUpdateUpdateMsg.
   ///
   /// In en, this message translates to:
-  /// **'A new version of ProxyPin is available. Would you like to update now?'**
+  /// **'A new version of RsProxy is available. Would you like to update now?'**
   String get appUpdateUpdateMsg;
 
   /// No description provided for @appUpdateCurrentVersionLbl.
@@ -2325,30 +2313,6 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Open New Window'**
   String get openNewWindow;
-
-  /// No description provided for @sponsorDonate.
-  ///
-  /// In en, this message translates to:
-  /// **'Sponsor / Donate'**
-  String get sponsorDonate;
-
-  /// No description provided for @sponsorSupport.
-  ///
-  /// In en, this message translates to:
-  /// **'Support ongoing development'**
-  String get sponsorSupport;
-
-  /// No description provided for @sponsorThanks.
-  ///
-  /// In en, this message translates to:
-  /// **'Thank you for supporting this open-source project by choosing any of the following methods to help its long-term development.'**
-  String get sponsorThanks;
-
-  /// No description provided for @sponsorAfdian.
-  ///
-  /// In en, this message translates to:
-  /// **'AFDIAN'**
-  String get sponsorAfdian;
 
   /// No description provided for @privacyPolicy.
   ///
@@ -2587,7 +2551,7 @@ abstract class AppLocalizations {
   /// No description provided for @mcpHintRun.
   ///
   /// In en, this message translates to:
-  /// **'Run this command in Terminal to add ProxyPin MCP to {client}.'**
+  /// **'Run this command in Terminal to add RsProxy MCP to {client}.'**
   String mcpHintRun(String client);
 
   /// No description provided for @mcpAboutTitle.
@@ -2599,7 +2563,7 @@ abstract class AppLocalizations {
   /// No description provided for @mcpAboutText.
   ///
   /// In en, this message translates to:
-  /// **'MCP (Model Context Protocol) lets AI assistants like Claude interact with ProxyPin. AI can read captured HTTP traffic, create debugging rules (Map Local, Map Remote, Breakpoints), and help analyze network issues.'**
+  /// **'MCP (Model Context Protocol) lets AI assistants like Claude interact with RsProxy. AI can read captured HTTP traffic, create debugging rules (Map Local, Map Remote, Breakpoints), and help analyze network issues.'**
   String get mcpAboutText;
 
   /// No description provided for @mcpLearnMore.

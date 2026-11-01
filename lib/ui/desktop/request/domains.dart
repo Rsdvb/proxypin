@@ -332,7 +332,7 @@ class DomainWidgetState extends State<DomainList> with AutomaticKeepAliveClientM
     if (safeDomain.isEmpty) {
       safeDomain = 'domain';
     }
-    return 'ProxyPin_${safeDomain}_${DateTime.now().dateFormat()}.har';
+    return 'RsProxy_${safeDomain}_${DateTime.now().dateFormat()}.har';
   }
 
   ///排序

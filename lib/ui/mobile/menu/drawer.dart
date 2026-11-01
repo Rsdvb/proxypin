@@ -88,7 +88,7 @@ class DrawerWidget extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Text('ProxyPin', style: Theme.of(context).textTheme.titleLarge),
+                          Text('RsProxy', style: Theme.of(context).textTheme.titleLarge),
                           const SizedBox(height: 4),
                           Text(isCN ? "全平台开源免费抓包软件" : "Full platform open source free capture HTTP(S) traffic software",
                               maxLines: 2,

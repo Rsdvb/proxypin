@@ -137,7 +137,7 @@ class McpServer {
         McpTool(
           name: 'get_proxy_status',
           description:
-              'Get ProxyPin capture status: whether recording, proxy port, SSL interception, MCP version, and number of buffered flows.',
+              'Get RsProxy capture status: whether recording, proxy port, SSL interception, MCP version, and number of buffered flows.',
           inputSchema: {'type': 'object', 'properties': {}},
           handler: (_) async {
             var server = ProxyServer.current;

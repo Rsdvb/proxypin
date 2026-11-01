@@ -20,6 +20,7 @@ import 'package:proxypin/ui/component/svg_icon.dart';
 import 'package:proxypin/ui/component/utils.dart';
 import 'package:proxypin/ui/configuration.dart';
 import 'package:proxypin/ui/desktop/preference.dart';
+import 'package:proxypin/utils/app_identity.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 ///左侧导航栏（设计稿 .rail / .ritem：宽 64，项 52x48 圆角 9，图标 19 + 标签 10）
@@ -89,7 +90,7 @@ class _LeftNavigationBarState extends State<LeftNavigationBar> {
                       icon: 'chat',
                       label: localizations.feedback,
                       compact: true,
-                      onTap: () => launchUrl(Uri.parse("https://github.com/wanghongenpin/proxypin/issues")))),
+                      onTap: () => launchUrl(Uri.parse("${AppIdentity.repositoryUrl}/issues")))),
             ]),
           );
         });
