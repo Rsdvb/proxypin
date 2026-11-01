@@ -6,6 +6,7 @@ import 'advanced_page.dart';
 import 'backup_page.dart';
 import 'connections_page.dart';
 import 'dns_page.dart';
+import 'home_stats.dart';
 import 'tools_pages.dart';
 import 'tun_page.dart';
 
@@ -43,6 +44,7 @@ class MorePage extends StatelessWidget {
         entry(Icons.vpn_lock_outlined, 'TUN', const TunPage()),
         const Divider(height: 1),
         entry(Icons.cloud_sync_outlined, '备份与同步', BackupPage(configuration: configuration)),
+        entry(Icons.dashboard_customize_outlined, '首页显示', const HomeStatsPage()),
         entry(Icons.tune, '高级设置', const AdvancedPage()),
       ]),
     );

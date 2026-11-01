@@ -246,6 +246,13 @@ void main() {
     });
   });
 
+  group('the core snapshot', () {
+    test('memory comes along with the connections', () {
+      const snapshot = ConnectionSnapshot(1, 2, [], memory: 3);
+      expect(snapshot.memory, 3);
+    });
+  });
+
   group('the rule editor', () {
     testWidgets('opens with the value from the connection, after what was there', (tester) async {
       tester.view.physicalSize = const Size(800, 2400);

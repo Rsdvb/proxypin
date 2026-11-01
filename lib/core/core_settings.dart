@@ -291,6 +291,17 @@ class TunSettings {
       };
 }
 
+/// 首页能显示的数字
+abstract class HomeStat {
+  static const String runtime = 'runtime';
+  static const String connections = 'connections';
+  static const String traffic = 'traffic';
+  static const String speed = 'speed';
+  static const String memory = 'memory';
+  static const String outboundIp = 'outbound_ip';
+  static const List<String> all = [runtime, connections, traffic, speed, memory, outboundIp];
+}
+
 /// 连接相关的设置
 class CoreSettings {
   String? activeProfileId;
@@ -344,6 +355,12 @@ class CoreSettings {
   bool hideDisabledGroups;
   String testUrl;
   List<RuleGroup> groups;
+
+  /// 首页显示的数字，按这个顺序
+  List<String> homeStats;
+
+  /// 这次连接开始的时间。存下来：iOS 的隧道可能比 App 活得久
+  DateTime? connectedAt;
 
   /// 规则检测上次查的域名
   String ruleCheckDomain;
@@ -430,6 +447,8 @@ class CoreSettings {
     this.hideDisabledGroups = false,
     this.testUrl = 'https://www.gstatic.com/generate_204',
     List<RuleGroup>? groups,
+    List<String>? homeStats,
+    this.connectedAt,
     this.ruleCheckDomain = 'google.com',
     Set<String>? disabledNodes,
     List<String>? recentNodes,
@@ -462,6 +481,7 @@ class CoreSettings {
         dns = dns ?? DnsSettings(),
         tunSettings = tunSettings ?? TunSettings(),
         bypassDomains = bypassDomains ?? [...defaultBypassDomains],
+        homeStats = homeStats ?? [HomeStat.speed],
         disabledNodes = disabledNodes ?? {},
         recentNodes = recentNodes ?? [],
         searchKeywords = searchKeywords ?? [],
@@ -511,6 +531,8 @@ class CoreSettings {
         hideDisabledGroups: json['hideDisabledGroups'] ?? false,
         testUrl: json['testUrl'] ?? 'https://www.gstatic.com/generate_204',
         groups: (json['groups'] as List?)?.map((e) => RuleGroup.fromJson(e)).toList(),
+        homeStats: (json['homeStats'] as List?)?.map((e) => e.toString()).toList(),
+        connectedAt: DateTime.tryParse(json['connectedAt'] ?? ''),
         ruleCheckDomain: json['ruleCheckDomain'] ?? 'google.com',
         disabledNodes: (json['disabledNodes'] as List?)?.map((e) => e.toString()).toSet(),
         recentNodes: (json['recentNodes'] as List?)?.map((e) => e.toString()).toList(),
@@ -566,6 +588,8 @@ class CoreSettings {
         'hideDisabledGroups': hideDisabledGroups,
         'testUrl': testUrl,
         'groups': groups,
+        'homeStats': homeStats,
+        'connectedAt': connectedAt?.toIso8601String(),
         'ruleCheckDomain': ruleCheckDomain,
         'disabledNodes': disabledNodes.toList(),
         'recentNodes': recentNodes,

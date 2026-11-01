@@ -305,6 +305,7 @@ class CoreManager extends ChangeNotifier {
   }
 
   Future<void> _afterCrash() async {
+    await _setConnectedAt(null);
     final failure = await platform.lastFailure();
     if (failure != null) {
       lastError = CoreTools.describeFailure(failure);
@@ -333,6 +334,7 @@ class CoreManager extends ChangeNotifier {
         await _writeConfig();
         await platform.start(_tun ? settings.tunSettings.tunnelOptions : const {});
         await _afterStart();
+        await _setConnectedAt(DateTime.now());
         _setState(CoreState.running);
         unawaited(_retryRuleSets());
       } catch (e) {
@@ -356,9 +358,15 @@ class CoreManager extends ChangeNotifier {
         await mitm.detach();
         await platform.stop();
       } finally {
+        await _setConnectedAt(null);
         _setState(CoreState.stopped);
       }
     });
+  }
+
+  Future<void> _setConnectedAt(DateTime? time) async {
+    settings.connectedAt = time;
+    await store.saveSettings(settings);
   }
 
   void _setState(CoreState value) {
@@ -1079,6 +1087,13 @@ class CoreManager extends ChangeNotifier {
 
   /// 只影响界面的设置，不用重载内核
   Future<void> saveUiSettings() => store.saveSettings(settings);
+
+  /// 首页跟着换刷新的内容
+  Future<void> saveHomeStats(List<String> stats) async {
+    settings.homeStats = stats;
+    await store.saveSettings(settings);
+    notifyListeners();
+  }
 
   /// 设置页改完后调用。运行中会重载内核，所以页面都是离开时才保存一次
   Future<void> applySettings() async {

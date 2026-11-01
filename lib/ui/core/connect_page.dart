@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:proxypin/core/clash_api.dart';
 import 'package:proxypin/core/core_config.dart';
 import 'package:proxypin/core/core_manager.dart';
 import 'package:proxypin/core/core_platform.dart';
@@ -15,8 +14,10 @@ import 'package:proxypin/utils/desktop_tray.dart';
 
 import 'decrypt_domains_page.dart';
 import 'format.dart';
+import 'home_stats.dart';
 import 'more_page.dart';
 import 'nodes_page.dart';
+import 'profile_options.dart';
 import 'profiles_page.dart';
 import 'rule_groups_page.dart';
 
@@ -140,6 +141,7 @@ class _ConnectView extends StatelessWidget {
             if (Platform.isWindows)
               SwitchListTile(
                 title: const Text('系统代理'),
+                subtitle: Text('HTTP 和 SOCKS 端口 ${manager.settings.mixedPort}'),
                 value: manager.settings.systemProxy,
                 onChanged: manager.setSystemProxy,
               ),
@@ -151,8 +153,8 @@ class _ConnectView extends StatelessWidget {
             ),
           ]),
           if (manager.isRunning) ...[
-            const SizedBox(height: 16),
-            _TrafficLine(manager.api),
+            const SizedBox(height: 12),
+            HomeStats(manager, proxyServer.configuration),
           ],
         ]),
       ),
@@ -187,8 +189,11 @@ class _ConnectView extends StatelessWidget {
     return InkWell(
       onTap: () => _open(context, const ProfilesPage()),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-        child: ProfileSummary(profile),
+        padding: const EdgeInsets.fromLTRB(16, 12, 4, 12),
+        child: Row(children: [
+          Expanded(child: ProfileSummary(profile)),
+          if (profile.isSubscription) _UpdateButton(manager, profile),
+        ]),
       ),
     );
   }
@@ -201,6 +206,44 @@ class _ConnectView extends StatelessWidget {
       onTap: () => _open(context, DecryptDomainsPage(configuration: proxyServer.configuration)),
       trailing: Switch(value: manager.settings.capture, onChanged: manager.setCapture),
     );
+  }
+}
+
+/// 更新订阅，刷新用量和到期时间也靠它：面板没有单独查用量的接口
+class _UpdateButton extends StatefulWidget {
+  final CoreManager manager;
+  final Profile profile;
+
+  const _UpdateButton(this.manager, this.profile);
+
+  @override
+  State<_UpdateButton> createState() => _UpdateButtonState();
+}
+
+class _UpdateButtonState extends State<_UpdateButton> {
+  bool _updating = false;
+
+  Future<void> _update() async {
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _updating = true);
+    try {
+      await widget.manager.updateProfile(widget.profile);
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text(describeProfileError(e))));
+    } finally {
+      if (mounted) setState(() => _updating = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_updating) {
+      return const Padding(
+        padding: EdgeInsets.all(12),
+        child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+      );
+    }
+    return IconButton(tooltip: '更新', icon: const Icon(Icons.refresh, size: 20), onPressed: _update);
   }
 }
 
@@ -221,11 +264,19 @@ class ProfileSummary extends StatelessWidget {
         const SizedBox(height: 8),
         LinearProgressIndicator(value: (info.used / info.total).clamp(0, 1).toDouble(), minHeight: 4),
         const SizedBox(height: 6),
-        Text(
-          '${formatBytes(info.used)} / ${formatBytes(info.total)}'
-          '${info.expire == null ? '' : ' · ${formatDate(info.expire!)} 到期'}',
-          style: theme.textTheme.bodySmall,
-        ),
+        Text.rich(TextSpan(style: theme.textTheme.bodySmall, children: [
+          TextSpan(
+            text: '↑ ${formatBytes(info.upload)} ↓ ${formatBytes(info.download)} / ${formatBytes(info.total)}',
+            style: info.used >= info.total ? TextStyle(color: theme.colorScheme.error) : null,
+          ),
+          if (info.expire != null)
+            TextSpan(
+              text: ' · ${formatDate(info.expire!)} 到期',
+              style: info.expire!.isBefore(DateTime.now().add(const Duration(days: 7)))
+                  ? TextStyle(color: theme.colorScheme.error)
+                  : null,
+            ),
+        ])),
       ],
     ]);
   }
@@ -297,60 +348,6 @@ class _PowerButton extends StatelessWidget {
               textAlign: TextAlign.center, style: TextStyle(color: theme.colorScheme.error, fontSize: 12)),
         ),
     ]);
-  }
-}
-
-/// 实时速度。App 进后台时断开订阅：iOS 上这条连接一直占着内核的内存，也让解密时的主 App 多醒
-class _TrafficLine extends StatefulWidget {
-  final ClashApi api;
-
-  const _TrafficLine(this.api);
-
-  @override
-  State<_TrafficLine> createState() => _TrafficLineState();
-}
-
-class _TrafficLineState extends State<_TrafficLine> with WidgetsBindingObserver {
-  StreamSubscription<TrafficSample>? _subscription;
-  TrafficSample _sample = const TrafficSample(0, 0);
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addObserver(this);
-    _subscribe();
-  }
-
-  void _subscribe() {
-    _subscription ??= widget.api.traffic().listen((sample) {
-      if (mounted) setState(() => _sample = sample);
-    }, onError: (_) {});
-  }
-
-  void _unsubscribe() {
-    _subscription?.cancel();
-    _subscription = null;
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    state == AppLifecycleState.resumed ? _subscribe() : _unsubscribe();
-  }
-
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    _unsubscribe();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      '↑ ${formatBytes(_sample.up)}/s    ↓ ${formatBytes(_sample.down)}/s',
-      textAlign: TextAlign.center,
-      style: Theme.of(context).textTheme.bodySmall,
-    );
   }
 }
 

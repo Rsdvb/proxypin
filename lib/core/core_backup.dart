@@ -32,6 +32,7 @@ class CoreBackup {
     'capture',
     'tun',
     'systemProxyActive',
+    'connectedAt',
     'ruleSetsUpdatedAt',
     'webDavUrl',
     'webDavUsername',

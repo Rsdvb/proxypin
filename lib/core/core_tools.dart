@@ -174,6 +174,10 @@ class CoreTools {
     }
   }
 
+  /// 经 [proxy] 出去时对外的地址，带上地区
+  static Future<String> outboundAddress(String proxy) =>
+      _body('https://www.cloudflare.com/cdn-cgi/trace', proxy, _traceSummary).timeout(_timeout);
+
   static Future<String> _status(String url, String? proxy) async {
     final client = HttpClient()..connectionTimeout = _timeout;
     if (proxy != null) client.findProxy = (_) => 'PROXY $proxy';
