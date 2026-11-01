@@ -1,8 +1,9 @@
-name: TestFlight
+name: Signed build
 
-# Signs with an App Store Connect API key and uploads to TestFlight, so nothing here
-# needs a Mac at hand. ios/fastlane/Fastfile does the signing and says what has to be
-# set up on Apple's side first.
+# Signs with an App Store Connect API key, so nothing here needs a Mac at hand.
+# ios/fastlane/Fastfile does the signing and says what has to be set up on Apple's side
+# first. An adhoc-* tag keeps an ipa for the registered devices as an artifact and
+# leaves nothing with Apple; a testflight-* tag uploads to TestFlight instead.
 #
 # Repository secrets:
 #   APPLE_TEAM_ID         Team ID from the Membership page
@@ -10,12 +11,12 @@ name: TestFlight
 #   ASC_ISSUER_ID         Issuer ID
 #   ASC_KEY_P8            Contents of the .p8 file
 #
-# Runs on a testflight-* tag: a manual trigger only works for workflows on the default
-# branch, and this one lives on a feature branch.
+# Runs on a tag: a manual trigger only works for workflows on the default branch, and
+# this one lives on a feature branch.
 on:
   workflow_dispatch:
   push:
-    tags: ['testflight-*']
+    tags: ['testflight-*', 'adhoc-*']
 
 permissions:
   contents: read
@@ -71,11 +72,11 @@ jobs:
           path: ios/Libbox/Libbox.xcframework
           key: libbox-${{ env.SING_BOX_VERSION }}-${{ hashFiles('tool/build_libbox.sh') }}
       - name: Prepare the Xcode project
-        # Each upload needs a build number App Store Connect has not seen
+        # Each TestFlight upload needs a build number App Store Connect has not seen
         run: flutter build ios --release --config-only --build-number="$GITHUB_RUN_NUMBER"
       - name: Install pods
         run: pod install --project-directory=ios
-      - name: Sign, build and upload
+      - name: Sign and build
         working-directory: ios
         env:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
@@ -92,7 +93,18 @@ jobs:
           LANG: en_US.UTF-8
         run: |
           source Flutter/flutter_export_environment.sh
-          fastlane beta
+          case "$GITHUB_REF_NAME" in
+            adhoc-*) fastlane adhoc ;;
+            *) fastlane beta ;;
+          esac
+      - name: Keep the ad hoc build
+        if: startsWith(github.ref_name, 'adhoc-')
+        uses: actions/upload-artifact@v4
+        with:
+          name: RsProxy-adhoc
+          path: ${{ runner.temp }}/signing/RsProxy.ipa
+          if-no-files-found: error
+          retention-days: 30
       - name: Keep the build log
         if: failure()
         uses: actions/upload-artifact@v4

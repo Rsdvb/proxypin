@@ -1,4 +1,4 @@
-# Signs and uploads from a machine that holds nothing but the App Store Connect API key.
+# Signs from a machine that holds nothing but the App Store Connect API key.
 #
 # Xcode's own automatic signing can't do this on a clean machine: it wants a development
 # certificate and a registered device first. So this makes a distribution certificate
@@ -6,7 +6,8 @@
 #
 # The API can't touch App Groups, so these are done once on the developer site: both App
 # IDs registered with App Groups, Network Extensions and Access Wi-Fi Information on, and
-# the group assigned to each. The app record has to exist in App Store Connect too.
+# the group assigned to each. beta also needs the app record in App Store Connect, and
+# adhoc needs the device registered.
 require 'fileutils'
 require 'securerandom'
 
@@ -15,6 +16,22 @@ default_platform(:ios)
 platform :ios do
   desc 'Sign with the API key alone and upload to TestFlight'
   lane :beta do
+    ipa = signed_ipa(adhoc: false)
+    upload_to_testflight(
+      api_key: lane_context[SharedValues::APP_STORE_CONNECT_API_KEY],
+      ipa: ipa,
+      skip_submission: true,
+      skip_waiting_for_build_processing: true
+    )
+  end
+
+  desc 'Sign with the API key alone for the registered devices, leaving nothing with Apple'
+  lane :adhoc do
+    signed_ipa(adhoc: true)
+  end
+
+  private_lane :signed_ipa do |options|
+    adhoc = options[:adhoc]
     app_id = 'io.github.rsdvb.rsproxy'
     tunnel_id = "#{app_id}.tunnel"
     group = "group.#{app_id}"
@@ -32,7 +49,11 @@ platform :ios do
     )
 
     # Everything that only fails at the end of a long build is checked before it
-    UI.user_error!("No app record for #{app_id} in App Store Connect") if Spaceship::ConnectAPI::App.find(app_id).nil?
+    if adhoc
+      UI.user_error!('No device registered') if Spaceship::ConnectAPI::Device.all.none?(&:enabled?)
+    elsif Spaceship::ConnectAPI::App.find(app_id).nil?
+      UI.user_error!("No app record for #{app_id} in App Store Connect")
+    end
     [app_id, tunnel_id].each do |id|
       bundle = Spaceship::ConnectAPI::BundleId.find(id)
       UI.user_error!("#{id} is not registered as an App ID") if bundle.nil?
@@ -41,8 +62,9 @@ platform :ios do
     end
 
     # The private key only ever lives on this machine, so a certificate from an earlier
-    # run is no use, and Apple caps how many a team holds. Revoking one leaves uploaded
-    # builds alone. The newest stays because Apple may still be processing its build.
+    # run can't sign anything, and Apple caps how many a team holds. The newest stays:
+    # Apple may still be processing its upload, or it signed what's on the phone, which
+    # may stop opening once its certificate is revoked. Anything older goes.
     Spaceship::ConnectAPI::Certificate.all(filter: { certificateType: 'DISTRIBUTION' })
                                       .sort_by(&:expiration_date)[0...-1].each(&:delete!)
 
@@ -60,7 +82,7 @@ platform :ios do
 
     profiles = {}
     [app_id, tunnel_id].each do |id|
-      get_provisioning_profile(api_key: key, app_identifier: id, force: true, output_path: work)
+      get_provisioning_profile(api_key: key, app_identifier: id, adhoc: adhoc, force: true, output_path: work)
       profile = FastlaneCore::ProvisioningProfile.parse(lane_context[SharedValues::SIGH_PROFILE_PATH])
       unless profile['Entitlements']['com.apple.security.application-groups'].to_a.include?(group)
         UI.user_error!("#{group} is not assigned to #{id}")
@@ -89,7 +111,7 @@ platform :ios do
       configuration: 'Release',
       output_directory: work,
       output_name: 'RsProxy.ipa',
-      export_method: 'app-store',
+      export_method: adhoc ? 'ad-hoc' : 'app-store',
       export_team_id: team_id,
       export_options: { provisioningProfiles: profiles, manageAppVersionAndBuildNumber: false },
       xcargs: version
@@ -99,6 +121,6 @@ platform :ios do
     sh('python3', File.join(ENV.fetch('GITHUB_WORKSPACE'), 'tool/check_ios_bundle.py'),
        File.join(work, 'ipa/Payload/Runner.app'), '--signed')
 
-    upload_to_testflight(api_key: key, ipa: ipa, skip_submission: true, skip_waiting_for_build_processing: true)
+    ipa
   end
 end
