@@ -11,6 +11,22 @@ class WindowsAdmin {
   }
 }
 
+/// 局域网共享要放行入站。写防火墙规则需要管理员权限，普通权限下由系统第一次弹窗询问
+class WindowsFirewall {
+  static const String _rule = 'RsProxy';
+
+  static String get _program => '${File(Platform.resolvedExecutable).parent.path}${Platform.pathSeparator}sing-box.exe';
+
+  static Future<bool> allow() async {
+    await Process.run('netsh', ['advfirewall', 'firewall', 'delete', 'rule', 'name=$_rule']);
+    final result = await Process.run(
+        'netsh', ['advfirewall', 'firewall', 'add', 'rule', 'name=$_rule', 'dir=in', 'action=allow', 'program=$_program', 'enable=yes']);
+    return result.exitCode == 0;
+  }
+
+  static Future<void> remove() => Process.run('netsh', ['advfirewall', 'firewall', 'delete', 'rule', 'name=$_rule']);
+}
+
 /// 开机自启，写在当前用户的 Run 项里，不需要管理员权限
 class WindowsAutostart {
   static const String _key = r'HKCU\Software\Microsoft\Windows\CurrentVersion\Run';

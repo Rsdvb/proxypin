@@ -67,6 +67,16 @@ class CoreTools {
     }
   }
 
+  /// 本机在局域网里的地址。跳过 VPN 和虚拟机的网卡：别的设备连不上它们
+  static Future<List<String>> lanAddresses() async {
+    final interfaces = await NetworkInterface.list(type: InternetAddressType.IPv4);
+    return [
+      for (final interface in interfaces)
+        if (!RegExp('vmware|virtualbox|vpn|tun|utun|wintun|loopback', caseSensitive: false).hasMatch(interface.name))
+          for (final address in interface.addresses) address.address,
+    ];
+  }
+
   /// 把内核的报错翻译成用户能处理的话，认不出来的原样给出最后一行
   static String describeFailure(String log) {
     final clean = log.replaceAll(RegExp(r'\x1B\[[0-9;]*m'), '').trim();

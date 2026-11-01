@@ -7,6 +7,7 @@ import 'backup_page.dart';
 import 'connections_page.dart';
 import 'dns_page.dart';
 import 'home_stats.dart';
+import 'network_pages.dart';
 import 'tools_pages.dart';
 import 'tun_page.dart';
 
@@ -42,6 +43,9 @@ class MorePage extends StatelessWidget {
         const Divider(height: 1),
         entry(Icons.dns_outlined, 'DNS', const DnsPage()),
         entry(Icons.vpn_lock_outlined, 'TUN', const TunPage()),
+        entry(Icons.shield_outlined, 'TLS 和多路复用', const NodeTuningPage()),
+        entry(Icons.share_outlined, '网络共享', const NetworkSharePage()),
+        entry(Icons.settings_ethernet, '端口', const PortsPage()),
         const Divider(height: 1),
         entry(Icons.cloud_sync_outlined, '备份与同步', BackupPage(configuration: configuration)),
         entry(Icons.dashboard_customize_outlined, '首页显示', const HomeStatsPage()),

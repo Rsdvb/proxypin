@@ -291,6 +291,132 @@ class TunSettings {
       };
 }
 
+/// 给所有节点统一加的选项。配置文件里的节点不动，生成内核配置时才加上
+class NodeTuning {
+  static const Set<String> muxCapableTypes = {'vmess', 'vless', 'trojan', 'shadowsocks'};
+  static const Set<String> _quicTypes = {'hysteria', 'hysteria2', 'tuic'};
+
+  /// 跳过证书验证。Karing 默认开，这里默认关：能连上的节点才不会被中间人冒充
+  bool tlsInsecure;
+
+  /// 拆分 TLS 握手绕过简单的过滤。官方内核不能指定大小，先试记录分片，它慢得少
+  bool tlsFragment;
+  bool tlsRecordFragment;
+
+  /// 拆分后等待的时间，内核测不出来时才用，单位毫秒，0 表示用内核的默认值
+  int fragmentDelayMs;
+  bool muxEnabled;
+
+  /// h2mux、smux、yamux
+  String muxProtocol;
+  bool muxPadding;
+
+  /// 内核规定最大流数和另外两项不能同时填：填了最大流数时另外两项不写入
+  int muxMaxStreams;
+  int muxMaxConnections;
+  int muxMinStreams;
+  bool muxBrutal;
+  int muxUpMbps;
+  int muxDownMbps;
+  Set<String> muxTypes;
+
+  NodeTuning({
+    this.tlsInsecure = false,
+    this.tlsFragment = false,
+    this.tlsRecordFragment = false,
+    this.fragmentDelayMs = 0,
+    this.muxEnabled = false,
+    this.muxProtocol = 'h2mux',
+    this.muxPadding = false,
+    this.muxMaxStreams = 8,
+    this.muxMaxConnections = 0,
+    this.muxMinStreams = 0,
+    this.muxBrutal = false,
+    this.muxUpMbps = 100,
+    this.muxDownMbps = 100,
+    Set<String>? muxTypes,
+  }) : muxTypes = muxTypes ?? {};
+
+  factory NodeTuning.fromJson(Map<String, dynamic> json) => NodeTuning(
+        tlsInsecure: json['tlsInsecure'] ?? false,
+        tlsFragment: json['tlsFragment'] ?? false,
+        tlsRecordFragment: json['tlsRecordFragment'] ?? false,
+        fragmentDelayMs: json['fragmentDelayMs'] ?? 0,
+        muxEnabled: json['muxEnabled'] ?? false,
+        muxProtocol: json['muxProtocol'] ?? 'h2mux',
+        muxPadding: json['muxPadding'] ?? false,
+        muxMaxStreams: json['muxMaxStreams'] ?? 8,
+        muxMaxConnections: json['muxMaxConnections'] ?? 0,
+        muxMinStreams: json['muxMinStreams'] ?? 0,
+        muxBrutal: json['muxBrutal'] ?? false,
+        muxUpMbps: json['muxUpMbps'] ?? 100,
+        muxDownMbps: json['muxDownMbps'] ?? 100,
+        muxTypes: (json['muxTypes'] as List?)?.map((e) => e.toString()).toSet(),
+      );
+
+  Map<String, dynamic> toJson() => {
+        'tlsInsecure': tlsInsecure,
+        'tlsFragment': tlsFragment,
+        'tlsRecordFragment': tlsRecordFragment,
+        'fragmentDelayMs': fragmentDelayMs,
+        'muxEnabled': muxEnabled,
+        'muxProtocol': muxProtocol,
+        'muxPadding': muxPadding,
+        'muxMaxStreams': muxMaxStreams,
+        'muxMaxConnections': muxMaxConnections,
+        'muxMinStreams': muxMinStreams,
+        'muxBrutal': muxBrutal,
+        'muxUpMbps': muxUpMbps,
+        'muxDownMbps': muxDownMbps,
+        'muxTypes': muxTypes.toList(),
+      };
+
+  Map<String, dynamic> apply(Map<String, dynamic> node) {
+    final tls = _tuneTls(node);
+    final mux = _multiplexFor(node);
+    if (tls == null && mux == null) return node;
+    return {...node, if (tls != null) 'tls': tls, if (mux != null) 'multiplex': mux};
+  }
+
+  Map<String, dynamic>? _tuneTls(Map<String, dynamic> node) {
+    final tls = node['tls'];
+    if (tls is! Map || tls['enabled'] != true) return null;
+    // Reality 自己验证服务器，用不上跳过验证
+    final reality = tls['reality'];
+    final insecure = tlsInsecure && !(reality is Map && reality['enabled'] == true);
+    // 拆分只对 TCP 有意义，QUIC 协议没有这一层
+    final fragmentable = !_quicTypes.contains(node['type']);
+    final fragment = fragmentable && tlsFragment;
+    final record = fragmentable && tlsRecordFragment;
+    if (!insecure && !fragment && !record) return null;
+    return {
+      ...tls.cast<String, dynamic>(),
+      if (insecure) 'insecure': true,
+      if (fragment) 'fragment': true,
+      if (record) 'record_fragment': true,
+      if (fragment && fragmentDelayMs > 0) 'fragment_fallback_delay': '${fragmentDelayMs}ms',
+    };
+  }
+
+  /// 节点自己写了 multiplex 的不动。用了 flow 的 VLESS 不套，和 Karing 一样
+  Map<String, dynamic>? _multiplexFor(Map<String, dynamic> node) {
+    if (!muxEnabled || !muxTypes.contains(node['type']) || node['multiplex'] != null) return null;
+    if (node['flow']?.toString().isNotEmpty == true) return null;
+    return {
+      'enabled': true,
+      'protocol': muxProtocol,
+      if (muxPadding) 'padding': true,
+      if (muxMaxStreams > 0)
+        'max_streams': muxMaxStreams
+      else ...{
+        if (muxMaxConnections > 0) 'max_connections': muxMaxConnections,
+        if (muxMinStreams > 0) 'min_streams': muxMinStreams,
+      },
+      if (muxBrutal) 'brutal': {'enabled': true, 'up_mbps': muxUpMbps, 'down_mbps': muxDownMbps},
+    };
+  }
+}
+
 /// 首页能显示的数字
 abstract class HomeStat {
   static const String runtime = 'runtime';
@@ -355,6 +481,24 @@ class CoreSettings {
   bool hideDisabledGroups;
   String testUrl;
   List<RuleGroup> groups;
+
+  /// 给所有节点统一加的 TLS 和多路复用选项
+  NodeTuning tuning;
+
+  /// 全部直连和全部走代理的本地端口，给想按程序区分的用户。0 表示不开
+  int directPort;
+  int globalPort;
+
+  /// 局域网里的其他设备能连上来
+  bool lanEnabled;
+  int lanPort;
+  int lanGlobalPort;
+  String lanUsername;
+  String lanPassword;
+
+  /// 本机代理端口的账号，两项都填才生效
+  String mixedUsername;
+  String mixedPassword;
 
   /// 首页显示的数字，按这个顺序
   List<String> homeStats;
@@ -447,6 +591,16 @@ class CoreSettings {
     this.hideDisabledGroups = false,
     this.testUrl = 'https://www.gstatic.com/generate_204',
     List<RuleGroup>? groups,
+    NodeTuning? tuning,
+    this.directPort = 0,
+    this.globalPort = 0,
+    this.lanEnabled = false,
+    this.lanPort = 17895,
+    this.lanGlobalPort = 17896,
+    this.lanUsername = '',
+    this.lanPassword = '',
+    this.mixedUsername = '',
+    this.mixedPassword = '',
     List<String>? homeStats,
     this.connectedAt,
     this.ruleCheckDomain = 'google.com',
@@ -481,6 +635,7 @@ class CoreSettings {
         dns = dns ?? DnsSettings(),
         tunSettings = tunSettings ?? TunSettings(),
         bypassDomains = bypassDomains ?? [...defaultBypassDomains],
+        tuning = tuning ?? NodeTuning(),
         homeStats = homeStats ?? [HomeStat.speed],
         disabledNodes = disabledNodes ?? {},
         recentNodes = recentNodes ?? [],
@@ -531,6 +686,16 @@ class CoreSettings {
         hideDisabledGroups: json['hideDisabledGroups'] ?? false,
         testUrl: json['testUrl'] ?? 'https://www.gstatic.com/generate_204',
         groups: (json['groups'] as List?)?.map((e) => RuleGroup.fromJson(e)).toList(),
+        tuning: json['tuning'] == null ? null : NodeTuning.fromJson(json['tuning']),
+        directPort: json['directPort'] ?? 0,
+        globalPort: json['globalPort'] ?? 0,
+        lanEnabled: json['lanEnabled'] ?? false,
+        lanPort: json['lanPort'] ?? 17895,
+        lanGlobalPort: json['lanGlobalPort'] ?? 17896,
+        lanUsername: json['lanUsername'] ?? '',
+        lanPassword: json['lanPassword'] ?? '',
+        mixedUsername: json['mixedUsername'] ?? '',
+        mixedPassword: json['mixedPassword'] ?? '',
         homeStats: (json['homeStats'] as List?)?.map((e) => e.toString()).toList(),
         connectedAt: DateTime.tryParse(json['connectedAt'] ?? ''),
         ruleCheckDomain: json['ruleCheckDomain'] ?? 'google.com',
@@ -588,6 +753,16 @@ class CoreSettings {
         'hideDisabledGroups': hideDisabledGroups,
         'testUrl': testUrl,
         'groups': groups,
+        'tuning': tuning,
+        'directPort': directPort,
+        'globalPort': globalPort,
+        'lanEnabled': lanEnabled,
+        'lanPort': lanPort,
+        'lanGlobalPort': lanGlobalPort,
+        'lanUsername': lanUsername,
+        'lanPassword': lanPassword,
+        'mixedUsername': mixedUsername,
+        'mixedPassword': mixedPassword,
         'homeStats': homeStats,
         'connectedAt': connectedAt?.toIso8601String(),
         'ruleCheckDomain': ruleCheckDomain,

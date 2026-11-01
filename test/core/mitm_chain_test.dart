@@ -47,7 +47,8 @@ void main() {
   }
 
   Future<void> waitForPort(int port) async {
-    for (var attempt = 0; attempt < 100; attempt++) {
+    // Windows runners sometimes scan a fresh sing-box.exe for longer than ten seconds
+    for (var attempt = 0; attempt < 400; attempt++) {
       try {
         (await Socket.connect(InternetAddress.loopbackIPv4, port)).destroy();
         return;

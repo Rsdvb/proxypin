@@ -66,6 +66,21 @@ class CoreOptions {
   /// 测 DNS 延迟用的入站，0 表示不开
   final int probePort;
 
+  /// 所有流量直连和走代理的本地端口，0 表示不开
+  final int directPort;
+  final int globalPort;
+
+  /// 局域网端口，0 表示不开
+  final int lanPort;
+  final int lanGlobalPort;
+  final String lanUsername;
+  final String lanPassword;
+  final String mixedUsername;
+  final String mixedPassword;
+
+  /// 给所有节点统一加的选项
+  final NodeTuning tuning;
+
   /// 代理设置里绕过的域名
   final List<String> proxyBypass;
 
@@ -108,6 +123,15 @@ class CoreOptions {
     required this.upstreamPort,
     required this.mitmPort,
     this.probePort = 0,
+    this.directPort = 0,
+    this.globalPort = 0,
+    this.lanPort = 0,
+    this.lanGlobalPort = 0,
+    this.lanUsername = '',
+    this.lanPassword = '',
+    this.mixedUsername = '',
+    this.mixedPassword = '',
+    NodeTuning? tuning,
     this.proxyBypass = const [],
     this.mitmDomains = const [],
     required this.clashPort,
@@ -118,7 +142,8 @@ class CoreOptions {
     this.testUrl = 'https://www.gstatic.com/generate_204',
     this.logLevel = 'warn',
   })  : dns = dns ?? DnsSettings(),
-        tunSettings = tunSettings ?? TunSettings();
+        tunSettings = tunSettings ?? TunSettings(),
+        tuning = tuning ?? NodeTuning();
 
   bool get ipv6 => ipStrategy != IpStrategy.ipv4Only;
 }
@@ -140,6 +165,10 @@ class CoreConfig {
   static const String _tagMixed = 'mixed-in';
   static const String _tagUpstream = 'upstream-in';
   static const String _tagProbe = 'probe-in';
+  static const String _tagDirectPort = 'direct-in';
+  static const String _tagGlobalPort = 'global-in';
+  static const String _tagLan = 'lan-in';
+  static const String _tagLanGlobal = 'lan-global-in';
   static const String _dnsProxy = 'dns-proxy';
   static const String _dnsDirect = 'dns-direct';
   static const String _dnsFakeIp = 'dns-fakeip';
@@ -194,11 +223,29 @@ class CoreConfig {
     };
   }
 
+  /// 账号两项都填才生效，只填一项等于没设，不能让代理忽然连不上
+  static Map<String, dynamic> _mixed(String tag, String listen, int port, {String username = '', String password = ''}) => {
+        'type': 'mixed',
+        'tag': tag,
+        'listen': listen,
+        'listen_port': port,
+        if (username.isNotEmpty && password.isNotEmpty)
+          'users': [
+            {'username': username, 'password': password}
+          ],
+      };
+
   static List<Map<String, dynamic>> _inbounds(CoreOptions options) => [
         if (options.tun) _tun(options),
         if (options.mixedPort > 0)
-          {'type': 'mixed', 'tag': _tagMixed, 'listen': '127.0.0.1', 'listen_port': options.mixedPort},
-        {'type': 'mixed', 'tag': _tagUpstream, 'listen': '127.0.0.1', 'listen_port': options.upstreamPort},
+          _mixed(_tagMixed, '127.0.0.1', options.mixedPort, username: options.mixedUsername, password: options.mixedPassword),
+        _mixed(_tagUpstream, '127.0.0.1', options.upstreamPort),
+        if (options.directPort > 0) _mixed(_tagDirectPort, '127.0.0.1', options.directPort),
+        if (options.globalPort > 0) _mixed(_tagGlobalPort, '127.0.0.1', options.globalPort),
+        if (options.lanPort > 0)
+          _mixed(_tagLan, '0.0.0.0', options.lanPort, username: options.lanUsername, password: options.lanPassword),
+        if (options.lanGlobalPort > 0)
+          _mixed(_tagLanGlobal, '0.0.0.0', options.lanGlobalPort, username: options.lanUsername, password: options.lanPassword),
         if (options.probePort > 0)
           {
             'type': 'mixed',
@@ -450,6 +497,18 @@ class CoreConfig {
         ],
         {'action': 'sniff'},
         if (options.tun && options.tunSettings.hijackDns) {'protocol': 'dns', 'action': 'hijack-dns'},
+        if (options.directPort > 0)
+          {
+            'inbound': [_tagDirectPort],
+            'action': 'route',
+            'outbound': _tagDirect,
+          },
+        if (options.globalPort > 0 || options.lanGlobalPort > 0)
+          {
+            'inbound': [if (options.globalPort > 0) _tagGlobalPort, if (options.lanGlobalPort > 0) _tagLanGlobal],
+            'action': 'route',
+            'outbound': routes.proxyTag,
+          },
         if (options.privateDirect) {'ip_is_private': true, 'action': 'route', 'outbound': _tagDirect},
         // sing-box 只接受规则里出现过的模式，其他名字会被悄悄忽略。这几条匹配不到任何流量，只为声明模式
         for (final mode in modes) {'clash_mode': mode, 'domain': _neverDomain, 'action': 'route', 'outbound': _tagDirect},
@@ -592,7 +651,7 @@ class _Routes {
     final behind = chain.isNotEmpty && !options.chainFront;
     final selectable = behind ? nodeTags.where((e) => !chain.contains(e)).toList() : nodeTags;
 
-    final nodes = [for (final node in options.nodes) _chained(node, chain, behind)];
+    final nodes = [for (final node in options.nodes) _chained(options.tuning.apply(node), chain, behind)];
     final byTag = {for (final node in nodes) node['tag'].toString(): node};
 
     final known = {for (final group in options.autoGroups) group.name: group};
