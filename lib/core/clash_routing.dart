@@ -3,8 +3,8 @@
 /// 只存解析结果，生成内核配置时再对照当前节点，因为过滤可能去掉其中一部分节点。
 class ProviderRouting {
   static const String _groupPrefix = 'group:';
-  static const String _direct = 'direct';
-  static const String _reject = 'reject';
+  static const String direct = 'direct';
+  static const String reject = 'reject';
 
   /// 名称、类型（select / urltest）、成员
   final List<ProviderGroup> groups;
@@ -13,9 +13,14 @@ class ProviderRouting {
   /// MATCH 规则的去向，其余都没命中时走这里
   final String? finalTarget;
 
-  const ProviderRouting(this.groups, this.rules, this.finalTarget);
+  /// 用户给组改的去向：组名 -> 成员名、direct 或 reject。存在设置里，订阅更新后还在
+  final Map<String, String> targets;
+
+  const ProviderRouting(this.groups, this.rules, this.finalTarget, {this.targets = const {}});
 
   bool get isEmpty => groups.isEmpty && rules.isEmpty && finalTarget == null;
+
+  ProviderRouting withTargets(Map<String, String> targets) => ProviderRouting(groups, rules, finalTarget, targets: targets);
 
   /// 用到的规则集名称，要和内置规则集同名才可用
   Set<String> get ruleSets => {for (final rule in rules) ...rule.ruleSets};
@@ -43,8 +48,8 @@ class ProviderRouting {
   }
 
   static String _target(String name) => switch (name.toUpperCase()) {
-        'DIRECT' => _direct,
-        'REJECT' || 'REJECT-DROP' => _reject,
+        'DIRECT' => direct,
+        'REJECT' || 'REJECT-DROP' => reject,
         _ => name,
       };
 
@@ -106,17 +111,36 @@ class ProviderRouting {
             for (final member in group.members)
               if (groupNames.contains(member))
                 '$_groupPrefix$member'
-              else if (member == _direct || nodeTags.contains(member))
+              else if (member == direct || nodeTags.contains(member))
                 member,
           ];
+          final outbounds = members.isEmpty ? [direct] : members.toSet().toList();
+          final chosen = _chosen(group.name, groupNames, nodeTags);
+          // 自动测速的组改了去向也变成手动选择，否则内核还是会自己换
+          if (chosen != null) {
+            return {
+              'type': 'selector',
+              'tag': '$_groupPrefix${group.name}',
+              'outbounds': {...outbounds, chosen}.toList(),
+              'default': chosen,
+            };
+          }
           return {
             'type': group.type,
             'tag': '$_groupPrefix${group.name}',
-            'outbounds': members.isEmpty ? [_direct] : members.toSet().toList(),
+            'outbounds': outbounds,
             if (group.type == 'urltest') ...{'url': testUrl, 'interval': '10m', 'idle_timeout': '30m'},
           };
         }(),
     ];
+  }
+
+  /// 用户给这个组选的 outbound。选的节点被过滤掉或订阅里没了，就当没选
+  String? _chosen(String group, Set<String> groupNames, List<String> nodeTags) {
+    final target = targets[group];
+    if (target == null || target == reject) return null;
+    if (target == direct || nodeTags.contains(target)) return target;
+    return groupNames.contains(target) && target != group ? '$_groupPrefix$target' : null;
   }
 
   /// 内核的路由规则。[available] 是可用的规则集，其余的要去掉，否则内核起不来
@@ -136,9 +160,9 @@ class ProviderRouting {
 
   /// 去向对应的路由动作。节点可能已被过滤掉，这时走 [fallback]
   Map<String, dynamic> action(String target, List<String> nodeTags, {required String fallback}) {
-    if (target == _reject) return {'action': 'reject'};
+    if (target == reject || targets[target] == reject) return {'action': 'reject'};
     final outbound = switch (target) {
-      _direct => _direct,
+      direct => direct,
       _ when groups.any((e) => e.name == target) => '$_groupPrefix$target',
       _ when nodeTags.contains(target) => target,
       _ => fallback,

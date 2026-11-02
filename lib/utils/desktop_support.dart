@@ -11,7 +11,7 @@ import '../network/util/logger.dart';
 import '../ui/component/multi_window.dart';
 
 class DesktopSupport {
-  static const _minimumWindowSize = Size(1000, 600);
+  static const _minimumWindowSize = Size(680, 520);
 
   static Future<void> initialize(AppConfiguration appConfiguration) async {
     try {

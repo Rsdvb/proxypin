@@ -16,6 +16,15 @@ class SceneDelegate: FlutterSceneDelegate {
         if let url = connectionOptions.urlContexts.first?.url {
             ImportLinks.shared.receive(url.absoluteString)
         }
+        if let item = connectionOptions.shortcutItem {
+            ImportLinks.shared.receive(item.type)
+        }
+    }
+
+    /// 长按图标的快捷操作。type 写在 Info.plist 里，就是控制连接的链接
+    override func windowScene(_ windowScene: UIWindowScene, performActionFor shortcutItem: UIApplicationShortcutItem, completionHandler: @escaping (Bool) -> Void) {
+        ImportLinks.shared.receive(shortcutItem.type)
+        completionHandler(true)
     }
 
     @available(iOS 26.0, *)

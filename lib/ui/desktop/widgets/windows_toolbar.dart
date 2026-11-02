@@ -45,7 +45,7 @@ class _WindowsToolbarState extends State<WindowsToolbar> with WindowListener {
         ],
         // title 内部含 Spacer（flex 子节点），必须给有界宽度，否则整个 title 布局失败不渲染；
         // 用 Expanded 让它占满标题栏剩余宽度，并整体作为窗口拖动区域（按钮点击不受影响）
-        Expanded(child: _ToolbarDragArea(child: widget.title ?? const SizedBox())),
+        Expanded(child: WindowDragArea(child: widget.title ?? const SizedBox.expand())),
         WindowCaptionButton.minimize(
             brightness: Theme.brightnessOf(context),
             onPressed: () async {
@@ -99,16 +99,16 @@ class _WindowsToolbarState extends State<WindowsToolbar> with WindowListener {
 /// 且其双击手势会让子按钮的单击多出约 300ms 等待。
 /// 这里拖动照旧；双击改为手动检测：命中路径的最深目标是拖动区自身时（空白区域、图标缝隙，
 /// 空白处没有子节点认领命中）才切换最大化，落在按钮等子控件上则忽略。
-class _ToolbarDragArea extends StatefulWidget {
+class WindowDragArea extends StatefulWidget {
   final Widget child;
 
-  const _ToolbarDragArea({required this.child});
+  const WindowDragArea({super.key, required this.child});
 
   @override
-  State<_ToolbarDragArea> createState() => _ToolbarDragAreaState();
+  State<WindowDragArea> createState() => _WindowDragAreaState();
 }
 
-class _ToolbarDragAreaState extends State<_ToolbarDragArea> {
+class _WindowDragAreaState extends State<WindowDragArea> {
   final GlobalKey _childKey = GlobalKey();
   Offset _lastTapPos = Offset.zero;
   DateTime _lastTapTime = DateTime.fromMillisecondsSinceEpoch(0);

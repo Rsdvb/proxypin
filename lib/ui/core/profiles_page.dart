@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:proxypin/core/core_manager.dart';
 import 'package:proxypin/core/profile.dart';
+import 'package:proxypin/core/qr_decoder.dart';
 import 'package:proxypin/core/subscription.dart';
 import 'package:proxypin/ui/component/qrcode/qr_scan_view.dart';
 import 'package:proxypin/utils/platform.dart';
@@ -201,6 +202,16 @@ class _ProfileCardState extends State<_ProfileCard> {
                 ),
               ]),
             ),
+            if (active)
+              Tag('使用中', color: theme.colorScheme.primary)
+            else if (!profile.isMerged && !widget.manager.activeProfileIsEmpty)
+              Tooltip(
+                message: '节点和当前配置一起用',
+                child: Switch(
+                  value: widget.manager.alsoEnabledProfiles.contains(profile.id),
+                  onChanged: (value) => widget.manager.setProfileAlsoEnabled(profile.id, value),
+                ),
+              ),
             if (_updating)
               const Padding(
                 padding: EdgeInsets.all(12),
@@ -301,6 +312,27 @@ class _AddProfilePageState extends State<AddProfilePage> {
     if (mounted) _setContent(text);
   }
 
+  void _useQrContent(String? text) {
+    if (!mounted) return;
+    if (text == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('没有找到二维码')));
+    } else {
+      _setContent(text);
+    }
+  }
+
+  Future<void> _scanImage() async {
+    final file = await FilePicker.pickFile(type: FileType.image);
+    if (file == null) return;
+    _useQrContent(await QrDecoder.decode(await file.readAsBytes()));
+  }
+
+  /// 截整个屏幕找二维码，网页或聊天窗口里的码不用另存成图片
+  Future<void> _scanScreen() async {
+    final screen = await QrDecoder.captureScreen();
+    _useQrContent(screen == null ? null : await QrDecoder.decode(screen));
+  }
+
   Future<void> _add() async {
     setState(() {
       _adding = true;
@@ -351,6 +383,13 @@ class _AddProfilePageState extends State<AddProfilePage> {
           TextButton.icon(onPressed: _paste, icon: const Icon(Icons.paste, size: 18), label: const Text('粘贴')),
           if (Platform.isIOS)
             TextButton.icon(onPressed: _scan, icon: const Icon(Icons.qr_code_scanner, size: 18), label: const Text('扫码')),
+          if (Platform.isWindows)
+            TextButton.icon(
+              onPressed: _scanScreen,
+              icon: const Icon(Icons.screenshot_monitor, size: 18),
+              label: const Text('识别屏幕二维码'),
+            ),
+          TextButton.icon(onPressed: _scanImage, icon: const Icon(Icons.image_outlined, size: 18), label: const Text('二维码图片')),
           TextButton.icon(onPressed: _importFile, icon: const Icon(Icons.folder_open, size: 18), label: const Text('文件')),
         ]),
         const SizedBox(height: 8),

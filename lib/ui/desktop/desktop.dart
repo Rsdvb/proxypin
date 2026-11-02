@@ -140,7 +140,7 @@ class _DesktopCaptureViewState extends State<DesktopCaptureView> implements Even
         ],
       ),
       body: Column(children: [
-        CaptureStatusBar(configuration: widget.proxyServer.configuration),
+        CaptureStatusBar(configuration: widget.proxyServer.configuration, proxyServer: widget.proxyServer),
         Expanded(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),

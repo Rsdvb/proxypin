@@ -10,6 +10,7 @@ import 'design.dart';
 import 'format.dart';
 import 'node_edit_page.dart';
 import 'profile_options.dart';
+import 'profiles_page.dart';
 
 /// 列表里的一行。节点可能上千个，所以先摊平成一维再懒加载
 sealed class _Row {
@@ -54,6 +55,7 @@ class _NodesPageState extends State<NodesPage> {
   /// 收起的分组，退出页面再进还在
   static final Set<String> _collapsed = {};
   static const int _recommendedLimit = 3;
+  static const double _gridWidth = 720;
 
   final CoreManager _manager = CoreManager.instance;
   final TextEditingController _search = TextEditingController();
@@ -385,7 +387,7 @@ class _NodesPageState extends State<NodesPage> {
     );
   }
 
-  Widget _nodeTile(_Node row, String selected, Map<String, Map<String, dynamic>> byTag) {
+  Widget _nodeTile(_Node row, String selected, Map<String, Map<String, dynamic>> byTag, {bool compact = false}) {
     final tag = row.tag;
     final node = byTag[tag]!;
     final theme = Theme.of(context);
@@ -398,8 +400,8 @@ class _NodesPageState extends State<NodesPage> {
         selected: tag == selected,
         tileColor: disabled ? theme.colorScheme.surfaceContainerHighest : null,
         minLeadingWidth: 20,
-        leading: Text('${row.number}', style: theme.textTheme.bodySmall),
-        title: Text(nodeLabel(tag), maxLines: 3, overflow: TextOverflow.ellipsis),
+        leading: compact ? null : Text('${row.number}', style: theme.textTheme.bodySmall),
+        title: Text(nodeLabel(tag), maxLines: compact ? 1 : 3, overflow: TextOverflow.ellipsis),
         subtitle: Text(disabled ? '${nodeTypeLabel(node)} · 已禁用' : nodeTypeLabel(node)),
         trailing: Row(mainAxisSize: MainAxisSize.min, children: [
           _delayCell(tag, testable: !disabled),
@@ -475,6 +477,65 @@ class _NodesPageState extends State<NodesPage> {
     );
   }
 
+  /// 宽窗口里节点排成网格，一屏能看到更多。节点可能上千个，所以每段都是懒加载的
+  Widget _grid(List<_Row> rows, String selected, Map<String, Map<String, dynamic>> byTag) {
+    final palette = Palette.of(context);
+    final accent = Theme.of(context).colorScheme.primary;
+
+    Widget cell(String tag, Widget child) => Material(
+          color: palette.panel,
+          clipBehavior: Clip.antiAlias,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: tag == selected ? BorderSide(color: accent, width: 1.4) : BorderSide.none,
+          ),
+          child: Center(child: child),
+        );
+
+    final slivers = <Widget>[];
+    var start = 0;
+    void closeSection(int end) {
+      if (start >= end) return;
+      final cells = rows.sublist(start, end);
+      slivers.add(SliverPadding(
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+        sliver: SliverGrid.builder(
+          gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+            maxCrossAxisExtent: 320,
+            mainAxisExtent: 62,
+            crossAxisSpacing: 10,
+            mainAxisSpacing: 10,
+          ),
+          itemCount: cells.length,
+          itemBuilder: (context, index) => switch (cells[index]) {
+            _Fixed row => cell(row.tag, _fixedTile(row.tag, selected)),
+            _Node row => cell(row.tag, _nodeTile(row, selected, byTag, compact: true)),
+            _ => const SizedBox.shrink(),
+          },
+        ),
+      ));
+    }
+
+    for (final (index, row) in rows.indexed) {
+      if (row is _Title) {
+        closeSection(index);
+        start = index + 1;
+        slivers.add(SliverToBoxAdapter(child: _title(row)));
+      } else if (row is _Group) {
+        closeSection(index);
+        start = index + 1;
+        slivers.add(SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+            child: Panel(children: [_groupHeader(row.group)]),
+          ),
+        ));
+      }
+    }
+    closeSection(rows.length);
+    return CustomScrollView(slivers: [...slivers, const SliverPadding(padding: EdgeInsets.only(bottom: 16))]);
+  }
+
   /// 连续的行拼成一张卡片。节点可能上千个，只能一行一行画圆角
   Widget _card(List<_Row> rows, int index, Widget child) {
     final row = rows[index];
@@ -534,13 +595,16 @@ class _NodesPageState extends State<NodesPage> {
               onPressed: _manager.testing ? null : _test,
             ),
             IconButton(tooltip: '显示设置', icon: const Icon(Icons.tune), onPressed: _openSettings),
+            IconButton(
+              tooltip: '我的配置',
+              icon: const Icon(Icons.folder_open_outlined),
+              onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ProfilesPage())),
+            ),
+            const SizedBox(width: 4),
           ]),
-          body: Align(
-            alignment: Alignment.topLeft,
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: AppPage.contentWidth),
-              child: Column(children: [
-            Padding(
+          body: LayoutBuilder(builder: (context, constraints) {
+            final wide = constraints.maxWidth >= _gridWidth;
+            final search = Padding(
               padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
               child: TextField(
                 controller: _search,
@@ -561,23 +625,26 @@ class _NodesPageState extends State<NodesPage> {
                 ),
                 onChanged: (value) => setState(() => _keyword = value.trim()),
               ),
-            ),
-            _filters(),
-            Expanded(
-              child: ListView.builder(
-                padding: const EdgeInsets.only(bottom: 16),
-                itemCount: rows.length,
-                itemBuilder: (context, index) => switch (rows[index]) {
-                  _Title row => _title(row),
-                  _Fixed row => _card(rows, index, _fixedTile(row.tag, selected)),
-                  _Node row => _card(rows, index, _nodeTile(row, selected, byTag)),
-                  _Group row => _card(rows, index, _groupHeader(row.group)),
-                },
+            );
+            return Column(children: [
+              search,
+              _filters(),
+              Expanded(
+                child: wide
+                    ? _grid(rows, selected, byTag)
+                    : ListView.builder(
+                        padding: const EdgeInsets.only(bottom: 16),
+                        itemCount: rows.length,
+                        itemBuilder: (context, index) => switch (rows[index]) {
+                          _Title row => _title(row),
+                          _Fixed row => _card(rows, index, _fixedTile(row.tag, selected)),
+                          _Node row => _card(rows, index, _nodeTile(row, selected, byTag)),
+                          _Group row => _card(rows, index, _groupHeader(row.group)),
+                        },
+                      ),
               ),
-            ),
-              ]),
-            ),
-          ),
+            ]);
+          }),
         );
       },
     );

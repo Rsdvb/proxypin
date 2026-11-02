@@ -18,7 +18,7 @@ import 'package:proxypin/storage/histories.dart';
 import 'package:proxypin/ui/component/multi_window.dart';
 import 'package:proxypin/ui/configuration.dart';
 import 'package:proxypin/ui/desktop/desktop.dart';
-import 'package:proxypin/ui/desktop/widgets/windows_toolbar.dart';
+import 'package:proxypin/ui/desktop/widgets/windows_toolbar.dart' show WindowDragArea, WindowsToolbar;
 import 'package:proxypin/ui/mobile/debug/breakpoint_executor.dart';
 import 'package:proxypin/ui/mobile/mobile.dart';
 import 'package:proxypin/utils/desktop_tray.dart';
@@ -356,20 +356,23 @@ class _Sidebar extends StatelessWidget {
         border: Border(right: BorderSide(color: palette.line, width: 0.6)),
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(18, 20, 18, 18),
-          child: Row(children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(7),
-              child: Image.asset('assets/icon.png', width: 26, height: 26, errorBuilder: (_, __, ___) => const SizedBox(width: 26)),
-            ),
-            const SizedBox(width: 10),
-            Text('RsProxy', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: palette.ink, letterSpacing: 0.2)),
-          ]),
+        // 窗口没有系统标题栏，这一块也要能拖动窗口
+        WindowDragArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(18, 20, 18, 18),
+            child: Row(children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(7),
+                child: Image.asset('assets/icon.png', width: 26, height: 26, errorBuilder: (_, __, ___) => const SizedBox(width: 26)),
+              ),
+              const SizedBox(width: 10),
+              Text('RsProxy', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: palette.ink, letterSpacing: 0.2)),
+            ]),
+          ),
         ),
         for (final (position, item) in ShellTab.all.indexed)
           _SidebarItem(item: item, selected: position == index, onTap: () => onSelect(position)),
-        const Spacer(),
+        const Expanded(child: WindowDragArea(child: SizedBox.expand())),
         if (CoreManager.isReady) ListenableBuilder(listenable: CoreManager.instance, builder: (_, __) => const _SidebarStatus()),
       ]),
     );

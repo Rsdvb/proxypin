@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:proxypin/core/core_manager.dart';
 import 'package:proxypin/core/core_tools.dart';
 import 'package:proxypin/core/rule_group.dart';
@@ -157,53 +158,75 @@ class NetworkCheckPage extends StatefulWidget {
 }
 
 class _NetworkCheckPageState extends State<NetworkCheckPage> {
-  List<CheckResult>? _results;
+  final CoreManager _manager = CoreManager.instance;
+  late final TextEditingController _domain = TextEditingController(text: _manager.settings.ruleCheckDomain);
+  final List<CheckResult> _results = [];
   bool _running = false;
 
   @override
-  void initState() {
-    super.initState();
-    _run();
+  void dispose() {
+    _domain.dispose();
+    super.dispose();
   }
 
   Future<void> _run() async {
-    final manager = CoreManager.instance;
+    final domain = _domain.text.trim().replaceFirst(RegExp(r'^https?://'), '').split('/').first;
+    if (!RuleChecks.isDomain(domain)) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('无效的域名')));
+      return;
+    }
     setState(() {
       _running = true;
-      _results = null;
+      _results.clear();
     });
-    // 连不上时正需要检测，所以这里自己连一次
-    if (manager.proxyAddress == null) await manager.connect();
-    final proxy = manager.proxyAddress;
-    final results = proxy == null
-        ? [CheckResult('内核', false, detail: manager.lastError ?? '没有连接成功')]
-        : await CoreTools.networkCheck(manager.api, proxy, testUrl: manager.settings.testUrl);
-    if (mounted) {
-      setState(() {
-        _running = false;
-        _results = results;
-      });
-    }
+    await _manager.diagnose(domain, (result) {
+      if (mounted) setState(() => _results.add(result));
+    });
+    if (mounted) setState(() => _running = false);
+  }
+
+  Future<void> _copy() async {
+    final messenger = ScaffoldMessenger.of(context);
+    await Clipboard.setData(ClipboardData(text: CoreTools.describeChecks(_results)));
+    messenger.showSnackBar(const SnackBar(content: Text('已复制')));
   }
 
   @override
   Widget build(BuildContext context) {
-    final results = _results;
     return Scaffold(
       appBar: AppBar(title: const Text('网络检测'), actions: [
-        IconButton(tooltip: '重新检测', icon: const Icon(Icons.refresh), onPressed: _running ? null : _run),
+        if (_results.isNotEmpty && !_running)
+          IconButton(tooltip: '复制结果', icon: const Icon(Icons.copy_all_outlined), onPressed: _copy),
+        const SizedBox(width: 4),
       ]),
-      body: results == null
-          ? const Center(child: CircularProgressIndicator())
-          : SettingsList(children: [
-              for (final result in results)
-                ListTile(
-                  leading: Icon(result.passed ? Icons.check_circle : Icons.cancel, color: result.passed ? Tone.good : Tone.bad),
-                  title: Text(result.name),
-                  subtitle: result.detail == null || result.detail!.isEmpty ? null : SelectableText(result.detail!),
-                  trailing: result.elapsed == null ? null : Text('${result.elapsed!.inMilliseconds} ms'),
-                ),
-            ]),
+      body: ContentColumn(children: [
+        TextField(
+          controller: _domain,
+          autocorrect: false,
+          keyboardType: TextInputType.url,
+          onSubmitted: (_) => _running ? null : _run(),
+          decoration: const InputDecoration(labelText: '要访问的域名'),
+        ),
+        const SizedBox(height: 12),
+        FilledButton(onPressed: _running ? null : _run, child: Text(_running ? '检测中' : '开始检测')),
+        if (_results.isNotEmpty) ...[
+          const SizedBox(height: AppTheme.gap),
+          Panel(children: [
+            for (final result in _results)
+              ListTile(
+                leading: Icon(result.passed ? Icons.check_circle : Icons.cancel, color: result.passed ? Tone.good : Tone.bad),
+                title: Text(result.name),
+                subtitle: result.detail == null || result.detail!.isEmpty ? null : SelectableText(result.detail!),
+                trailing: result.elapsed == null ? null : Text('${result.elapsed!.inMilliseconds} ms'),
+              ),
+          ]),
+        ],
+        if (_running)
+          const Padding(
+            padding: EdgeInsets.all(16),
+            child: Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))),
+          ),
+      ]),
     );
   }
 }

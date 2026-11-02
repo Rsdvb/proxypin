@@ -166,11 +166,22 @@ class CoreManager extends ChangeNotifier {
   /// 合并配置里节点的来历：tag -> (来源配置, 它在来源里的 tag)
   final Map<String, (Profile, String)> _mergedOrigins = {};
 
+  /// 和当前配置一起启用的其他配置。删掉的和合并配置不算
+  List<String> get alsoEnabledProfiles => settings.alsoEnabledProfiles
+      .where((id) => id != settings.activeProfileId && profiles.any((e) => e.id == id && !e.isMerged))
+      .toList();
+
+  bool get _combined => activeProfile?.isMerged == true || alsoEnabledProfiles.isNotEmpty;
+
+  bool get activeProfileIsEmpty => activeProfile == null;
+
   /// 界面上列出的节点，包括禁用的
   List<Map<String, dynamic>> get listedNodes {
     final profile = activeProfile;
     if (profile == null) return const [];
-    return _nodes ??= profile.isMerged ? _mergedNodes(profile) : profile.activeNodes;
+    return _nodes ??= _combined
+        ? _mergedNodes({...profile.isMerged ? profile.sources : [profile.id], ...alsoEnabledProfiles})
+        : profile.activeNodes;
   }
 
   /// 写进内核配置的节点，不含禁用的
@@ -185,11 +196,11 @@ class CoreManager extends ChangeNotifier {
   }
 
   /// 合并配置的节点。不同来源可能有同名节点，sing-box 要求 tag 唯一，重名的加上来源名
-  List<Map<String, dynamic>> _mergedNodes(Profile merged) {
+  List<Map<String, dynamic>> _mergedNodes(Iterable<String> sources) {
     final used = <String>{};
     final result = <Map<String, dynamic>>[];
     _mergedOrigins.clear();
-    for (final id in merged.sources) {
+    for (final id in sources) {
       for (final source in profiles.where((e) => e.id == id)) {
         for (final node in source.activeNodes) {
           final tag = node['tag'].toString();
@@ -208,7 +219,7 @@ class CoreManager extends ChangeNotifier {
     final profile = activeProfile;
     if (profile == null) return const [];
     final tags = listedNodes.map((e) => e['tag'].toString());
-    if (!profile.isMerged) return [NodeGroup(profile, tags.toList())];
+    if (!_combined) return [NodeGroup(profile, tags.toList())];
     final groups = <Profile, List<String>>{};
     for (final tag in tags) {
       (groups[_mergedOrigins[tag]!.$1] ??= []).add(tag);
@@ -221,7 +232,7 @@ class CoreManager extends ChangeNotifier {
     final profile = activeProfile;
     if (profile == null) return null;
     listedNodes;
-    return profile.isMerged ? _mergedOrigins[tag] : (profile, tag);
+    return _combined ? _mergedOrigins[tag] : (profile, tag);
   }
 
   /// 当前选中的节点 tag，空表示自动选择
@@ -298,6 +309,55 @@ class CoreManager extends ChangeNotifier {
         if (isRunning) await disconnect();
         await connect();
     }
+  }
+
+  /// 逐段检查网络，每出一项结果回调一次。一项失败不影响后面的，要看的就是断在哪一段。
+  /// 没连接时先连：连不上时才最需要它
+  Future<void> diagnose(String domain, void Function(CheckResult) report) async {
+    Future<void> check(String name, Future<String> Function() run) async => report(await CoreTools.timed(name, run));
+
+    await check('直连 IPv4', () => CoreTools.tcpReach('223.5.5.5', 53));
+    await check('直连 IPv6（没有 IPv6 网络时失败是正常的）', () => CoreTools.tcpReach('2400:3200::1', 53));
+
+    if (state == CoreState.stopped) await connect();
+    if (!isRunning) {
+      report(CheckResult('内核', false, detail: lastError ?? '没有连接成功'));
+      return;
+    }
+    await check('内核', () async => (await api.mode()) ?? '');
+
+    final missing = missingRuleSets;
+    report(CheckResult('规则集', missing.isEmpty, detail: missing.isEmpty ? '全部就绪' : '没下载成功：${missing.join('、')}'));
+
+    final dns = settings.dns;
+    final probeDomain = dns.testDomain;
+    Future<void> checkDns(String name, String url, ProbeRoute? route) => check(name, () async {
+          final delay = await DnsProbe.measure(url, probeDomain, route: route);
+          if (delay == null) throw StateError('没有解析结果');
+          return delay == DnsProbe.unsupported ? '这种服务器测不了延迟' : '$delay ms · $url';
+        });
+    await checkDns('DNS 服务器', dns.resolver, directProbe);
+    await checkDns('代理服务器的 DNS', dns.outbound, directProbe);
+    await checkDns('直连流量的 DNS', dns.direct, directProbe);
+    await checkDns('代理流量的 DNS', dns.proxy, nodeProbe);
+
+    final tag = activeNode ?? selectedNode;
+    final node = listedNodes.where((e) => e['tag'] == tag).firstOrNull;
+    final server = node?['server']?.toString();
+    final port = node?['server_port'];
+    if (server != null && port is int) {
+      await check('解析节点地址 $server', () => CoreTools.resolve(server));
+      await check('连接节点 $tag', () => CoreTools.tcpReach(server, port));
+    }
+
+    final proxy = proxyAddress!;
+    await check('通过节点上网', () => CoreTools.httpStatus(settings.testUrl, proxy));
+    await check('出口地址', () => CoreTools.outboundAddress(proxy));
+    await check('命中规则 $domain', () async {
+      final match = await CoreTools.matchRule(api, settings.upstreamPort, domain);
+      return match == null ? '没有查到结果' : '${match.rule.isEmpty ? '默认' : match.rule} → ${match.outbound}';
+    });
+    await check('访问 $domain', () => CoreTools.httpStatus('https://$domain', proxy));
   }
 
   /// 恢复默认设置。配置、节点选择这些用户自己的数据和这台设备的端口、密钥都留着
@@ -714,7 +774,29 @@ class CoreManager extends ChangeNotifier {
 
   ProviderRouting? get _providerRouting {
     final profile = activeProfile;
-    return profile != null && profile.keepProviderRules && settings.providerRulesEnabled ? profile.routing : null;
+    final routing = profile != null && profile.keepProviderRules && settings.providerRulesEnabled ? profile.routing : null;
+    final targets = settings.providerTargets[profile?.id];
+    return routing == null || targets == null ? routing : routing.withTargets(targets);
+  }
+
+  /// 当前配置里机场自带的分流组
+  List<ProviderGroup> get providerGroups {
+    final profile = activeProfile;
+    return profile != null && profile.keepProviderRules ? profile.routing?.groups ?? const [] : const [];
+  }
+
+  String? providerTarget(String group) => settings.providerTargets[settings.activeProfileId]?[group];
+
+  /// [target] 为空时恢复订阅的默认值。和分流页的其他改动一起生效
+  void setProviderTarget(String group, String? target) {
+    final id = settings.activeProfileId;
+    if (id == null) return;
+    final targets = settings.providerTargets[id] ??= {};
+    if (target == null) {
+      targets.remove(group);
+    } else {
+      targets[group] = target;
+    }
   }
 
   /// 地区基础规则排在用户的分流组后面，用户写的优先
@@ -938,7 +1020,8 @@ class CoreManager extends ChangeNotifier {
   /// 当前配置就是它，或者是用到它的合并配置
   bool _usesProfile(Profile profile) {
     final active = activeProfile;
-    return active != null && (active.id == profile.id || active.sources.contains(profile.id));
+    return active != null &&
+        (active.id == profile.id || active.sources.contains(profile.id) || alsoEnabledProfiles.contains(profile.id));
   }
 
   bool _updatingDue = false;
@@ -999,6 +1082,18 @@ class CoreManager extends ChangeNotifier {
     await store.saveSettings(settings);
     if (wasActive) await _applyConfig();
     if (settings.autoBackupOnRemove && profiles.isNotEmpty) await _autoBackup();
+    notifyListeners();
+  }
+
+  /// 让另一份配置的节点也进来。节点选择和机场规则还是跟当前配置走
+  Future<void> setProfileAlsoEnabled(String id, bool enabled) async {
+    settings.alsoEnabledProfiles = [
+      ...settings.alsoEnabledProfiles.where((e) => e != id),
+      if (enabled) id,
+    ];
+    _nodes = null;
+    await store.saveSettings(settings);
+    await _applyConfig();
     notifyListeners();
   }
 
@@ -1329,6 +1424,10 @@ class CoreManager extends ChangeNotifier {
   /// 首页跟着换刷新的内容
   Future<void> saveHomeStats(List<String> stats) async {
     settings.homeStats = stats;
+    await saveHomeLayout();
+  }
+
+  Future<void> saveHomeLayout() async {
     await store.saveSettings(settings);
     notifyListeners();
   }

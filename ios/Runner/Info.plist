@@ -68,6 +68,33 @@
 	<string>Save a QR code image to your photo library.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Choose a QR code image to import a configuration.</string>
+	<key>UIApplicationShortcutItems</key>
+	<array>
+		<dict>
+			<key>UIApplicationShortcutItemIconType</key>
+			<string>UIApplicationShortcutIconTypePlay</string>
+			<key>UIApplicationShortcutItemTitle</key>
+			<string>连接</string>
+			<key>UIApplicationShortcutItemType</key>
+			<string>rsproxy://connect</string>
+		</dict>
+		<dict>
+			<key>UIApplicationShortcutItemIconType</key>
+			<string>UIApplicationShortcutIconTypePause</string>
+			<key>UIApplicationShortcutItemTitle</key>
+			<string>断开</string>
+			<key>UIApplicationShortcutItemType</key>
+			<string>rsproxy://disconnect</string>
+		</dict>
+		<dict>
+			<key>UIApplicationShortcutItemIconType</key>
+			<string>UIApplicationShortcutIconTypeUpdate</string>
+			<key>UIApplicationShortcutItemTitle</key>
+			<string>重新连接</string>
+			<key>UIApplicationShortcutItemType</key>
+			<string>rsproxy://reconnect</string>
+		</dict>
+	</array>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UIBackgroundModes</key>

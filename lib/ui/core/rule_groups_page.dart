@@ -5,6 +5,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:proxypin/core/clash_routing.dart';
 import 'package:proxypin/core/core_manager.dart';
 import 'package:proxypin/core/dns_catalog.dart';
 import 'package:proxypin/core/rule_group.dart';
@@ -50,6 +51,9 @@ class RuleGroupsPage extends StatefulWidget {
 }
 
 class _RuleGroupsPageState extends State<RuleGroupsPage> {
+  static const double _twoColumns = 860;
+  static const double _sideWidth = 340;
+
   final CoreManager _manager = CoreManager.instance;
   late List<RuleGroup> _groups = _copy(_manager.settings.groups);
   bool _changed = false;
@@ -317,6 +321,52 @@ class _RuleGroupsPageState extends State<RuleGroupsPage> {
     if (mounted) setState(() {});
   }
 
+  Widget _providerTag(ProviderGroup group) {
+    final target = _manager.providerTarget(group.name);
+    final palette = Palette.of(context);
+    return switch (target) {
+      null => Tag(group.type == 'selector' ? '默认' : '自动', color: palette.muted),
+      ProviderRouting.direct => const Tag('直连', color: Tone.good),
+      ProviderRouting.reject => const Tag('拦截', color: Tone.bad),
+      _ => Tag(target, color: Theme.of(context).colorScheme.primary),
+    };
+  }
+
+  /// 机场的组不改名字也不改规则，只换去向，订阅更新后还在
+  Future<void> _pickProviderTarget(ProviderGroup group) async {
+    final current = _manager.providerTarget(group.name);
+    Widget choice(BuildContext context, String title, String value) => ListTile(
+          title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
+          trailing: (current ?? '') == value ? Icon(Icons.check, color: Theme.of(context).colorScheme.primary) : null,
+          onTap: () => Navigator.pop(context, value),
+        );
+
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      useRootNavigator: true,
+      builder: (context) => SafeArea(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.8),
+          child: ListView(shrinkWrap: true, children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+              child: Text(group.name, style: Theme.of(context).textTheme.titleLarge),
+            ),
+            choice(context, group.type == 'selector' ? '按订阅默认' : '自动测速', ''),
+            choice(context, '直连', ProviderRouting.direct),
+            choice(context, '拦截', ProviderRouting.reject),
+            const Divider(height: 12),
+            for (final member in group.members.where((e) => e != ProviderRouting.direct && e != ProviderRouting.reject))
+              choice(context, member, member),
+          ]),
+        ),
+      ),
+    );
+    if (picked == null) return;
+    _change(() => _manager.setProviderTarget(group.name, picked.isEmpty ? null : picked));
+  }
+
   Future<void> _openRegion() async {
     final region = await Navigator.of(context).push<String>(MaterialPageRoute(
       builder: (_) => RegionPage(current: _manager.settings.region),
@@ -330,6 +380,7 @@ class _RuleGroupsPageState extends State<RuleGroupsPage> {
     final missing = _manager.missingRuleSets.length;
     final visible = settings.hideDisabledGroups ? _groups.where((e) => e.enabled).toList() : _groups;
     final accent = Theme.of(context).colorScheme.primary;
+    final providerGroups = _manager.providerGroups;
     return Scaffold(
       appBar: AppBar(title: const Text('分流')),
       bottomNavigationBar: _changed
@@ -343,51 +394,66 @@ class _RuleGroupsPageState extends State<RuleGroupsPage> {
               ),
             )
           : null,
-      body: ContentColumn(children: [
-        if (missing > 0) ...[
-          Panel(children: [
-            InfoRow(
-              icon: Icons.warning_amber,
-              iconColor: Tone.warn,
-              title: '$missing 个规则集还没下载成功',
-              subtitle: '对应的规则暂未生效',
-              onTap: _openRuleSets,
-            ),
-          ]),
-        ],
-        SectionLabel(
-          '分流规则',
-          hint: '从上到下匹配',
-          action: TextButton(onPressed: _openManage, child: const Text('管理')),
-        ),
-        Panel(children: [
-          SwitchRow(
-            title: '启用自定义分流组',
-            value: settings.groupsEnabled,
-            onChanged: (value) => _change(() => settings.groupsEnabled = value),
-          ),
-          if (settings.groupsEnabled)
-            for (final group in visible)
+      body: LayoutBuilder(builder: (context, constraints) {
+        final rules = <Widget>[
+          if (missing > 0)
+            Panel(children: [
               InfoRow(
-                key: ValueKey(group.id),
-                title: group.name,
-                subtitle: ruleGroupSummary(group),
-                enabled: group.enabled,
-                onTap: () => _openGroup(group),
-                trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-                  if (group.dnsServer.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(right: 6),
-                      child: Icon(Icons.dns_outlined, size: 15, color: Palette.of(context).muted),
-                    ),
-                  _targetTag(group.target, enabled: group.enabled),
-                ]),
+                icon: Icons.warning_amber,
+                iconColor: Tone.warn,
+                title: '$missing 个规则集还没下载成功',
+                subtitle: '对应的规则暂未生效',
+                onTap: _openRuleSets,
               ),
-        ]),
-        const SectionLabel('其余流量', hint: '上面都没有命中时走这里'),
-        Panel(children: [
-          InfoRow(title: '其余流量', onTap: _pickFinal, trailing: _targetTag(settings.finalTarget)),
-        ]),
+            ]),
+          SectionLabel(
+            '分流规则',
+            hint: '从上到下匹配',
+            action: TextButton(onPressed: _openManage, child: const Text('管理')),
+          ),
+          Panel(children: [
+            SwitchRow(
+              title: '启用自定义分流组',
+              value: settings.groupsEnabled,
+              onChanged: (value) => _change(() => settings.groupsEnabled = value),
+            ),
+            if (settings.groupsEnabled)
+              for (final group in visible)
+                InfoRow(
+                  key: ValueKey(group.id),
+                  title: group.name,
+                  subtitle: ruleGroupSummary(group),
+                  enabled: group.enabled,
+                  onTap: () => _openGroup(group),
+                  trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                    if (group.dnsServer.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 6),
+                        child: Icon(Icons.dns_outlined, size: 15, color: Palette.of(context).muted),
+                      ),
+                    _targetTag(group.target, enabled: group.enabled),
+                  ]),
+                ),
+          ]),
+          if (settings.providerRulesEnabled && providerGroups.isNotEmpty) ...[
+            const SectionLabel('机场分流组', hint: '订阅自带的规则，点一下改去向'),
+            Panel(children: [
+              for (final group in providerGroups)
+                InfoRow(
+                  key: ValueKey('provider:${group.name}'),
+                  title: group.name,
+                  subtitle: '${group.type == 'selector' ? '手动选择' : '自动测速'} · ${group.members.length} 个成员',
+                  onTap: () => _pickProviderTarget(group),
+                  trailing: _providerTag(group),
+                ),
+            ]),
+          ],
+          const SectionLabel('其余流量', hint: '上面都没有命中时走这里'),
+          Panel(children: [
+            InfoRow(title: '其余流量', onTap: _pickFinal, trailing: _targetTag(settings.finalTarget)),
+          ]),
+        ];
+        final tools = <Widget>[
         const SectionLabel('基础规则'),
         Panel(children: [
           SwitchRow(
@@ -438,7 +504,13 @@ class _RuleGroupsPageState extends State<RuleGroupsPage> {
             onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const RuleCheckPage())),
           ),
         ]),
-      ]),
+        ];
+        if (constraints.maxWidth < _twoColumns) return ContentColumn(children: [...rules, ...tools]);
+        return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Expanded(child: ContentColumn(maxWidth: double.infinity, children: rules)),
+          SizedBox(width: _sideWidth, child: ContentColumn(children: tools)),
+        ]);
+      }),
     );
   }
 }

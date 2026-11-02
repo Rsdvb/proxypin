@@ -6,6 +6,7 @@ import 'package:proxypin/core/core_manager.dart';
 import 'package:proxypin/core/core_settings.dart';
 import 'package:proxypin/core/core_tools.dart';
 import 'package:proxypin/core/windows_autostart.dart';
+import 'package:proxypin/core/windows_loopback.dart';
 
 import 'design.dart';
 
@@ -241,6 +242,100 @@ class _NetworkSharePageState extends State<NetworkSharePage> with _SaveOnLeave {
         Padding(
           padding: const EdgeInsets.all(16),
           child: Text('没设账号时，同一网络里的任何设备都能用你的节点。', style: theme.textTheme.bodySmall),
+        ),
+      ]),
+    );
+  }
+}
+
+/// UWP 应用默认连不上本机代理，商店应用走不了代理时在这里放开
+class UwpLoopbackPage extends StatefulWidget {
+  const UwpLoopbackPage({super.key});
+
+  @override
+  State<UwpLoopbackPage> createState() => _UwpLoopbackPageState();
+}
+
+class _UwpLoopbackPageState extends State<UwpLoopbackPage> {
+  List<AppContainer>? _containers;
+  Set<String> _exempted = {};
+  String _query = '';
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final containers = await WindowsLoopback.containers();
+      final exempted = await WindowsLoopback.exempted();
+      if (mounted) {
+        setState(() {
+          _containers = containers;
+          _exempted = exempted;
+        });
+      }
+    } on ProcessException catch (e) {
+      if (mounted) setState(() => _error = e.message);
+    }
+  }
+
+  Future<void> _set(AppContainer container, bool exempt) async {
+    final messenger = ScaffoldMessenger.of(context);
+    if (!WindowsAdmin.isAdmin()) {
+      messenger.showSnackBar(const SnackBar(content: Text('需要管理员权限，请以管理员身份重新启动 RsProxy')));
+      return;
+    }
+    try {
+      await WindowsLoopback.setExempted(container.sid, exempt);
+      if (mounted) setState(() => exempt ? _exempted.add(container.sid) : _exempted.remove(container.sid));
+    } on ProcessException catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text('设置失败：${e.message}')));
+    }
+  }
+
+  Future<void> _setAll(Iterable<AppContainer> containers) async {
+    for (final container in containers.where((e) => !_exempted.contains(e.sid)).toList()) {
+      await _set(container, true);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final containers = _containers;
+    final query = _query.toLowerCase();
+    final visible = containers?.where((e) => e.name.toLowerCase().contains(query)).toList();
+    return Scaffold(
+      appBar: AppBar(title: const Text('UWP 回环豁免'), actions: [
+        if (visible != null) TextButton(onPressed: () => _setAll(visible), child: const Text('全部放开')),
+        const SizedBox(width: 8),
+      ]),
+      body: Column(children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+          child: TextField(
+            decoration: const InputDecoration(hintText: '搜索应用', prefixIcon: Icon(Icons.search)),
+            onChanged: (value) => setState(() => _query = value.trim()),
+          ),
+        ),
+        Expanded(
+          child: switch ((visible, _error)) {
+            (_, final String error) => Center(child: Padding(padding: const EdgeInsets.all(24), child: SelectableText(error))),
+            (null, _) => const Center(child: CircularProgressIndicator()),
+            (final List<AppContainer> list, _) => ListView.builder(
+                itemCount: list.length,
+                itemBuilder: (context, index) => CheckboxListTile(
+                  dense: true,
+                  title: Text(list[index].name, maxLines: 1, overflow: TextOverflow.ellipsis),
+                  subtitle: Text(list[index].moniker, maxLines: 1, overflow: TextOverflow.ellipsis),
+                  value: _exempted.contains(list[index].sid),
+                  onChanged: (value) => _set(list[index], value == true),
+                ),
+              ),
+          },
         ),
       ]),
     );

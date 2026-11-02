@@ -344,6 +344,9 @@ class InfoRow extends StatelessWidget {
   final bool chevron;
   final bool enabled;
 
+  /// 左右分栏时，右边正在显示这一行的内容
+  final bool selected;
+
   const InfoRow({
     super.key,
     this.icon,
@@ -355,6 +358,7 @@ class InfoRow extends StatelessWidget {
     this.onLongPress,
     this.chevron = true,
     this.enabled = true,
+    this.selected = false,
   });
 
   @override
@@ -364,7 +368,9 @@ class InfoRow extends StatelessWidget {
     return InkWell(
       onTap: tappable ? onTap : null,
       onLongPress: enabled ? onLongPress : null,
-      child: Opacity(
+      child: Ink(
+        color: selected ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.09) : null,
+        child: Opacity(
         opacity: enabled ? 1 : 0.5,
         child: ConstrainedBox(
           constraints: const BoxConstraints(minHeight: 52),
@@ -392,6 +398,7 @@ class InfoRow extends StatelessWidget {
               ],
             ]),
           ),
+        ),
         ),
       ),
     );

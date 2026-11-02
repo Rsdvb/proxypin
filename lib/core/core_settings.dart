@@ -436,6 +436,45 @@ abstract class HomeStat {
   static const List<String> all = [runtime, connections, traffic, speed, memory, outboundIp];
 }
 
+/// 首页能放的开关
+abstract class HomeSwitch {
+  static const String capture = 'capture';
+  static const String systemProxy = 'system_proxy';
+  static const String tun = 'tun';
+  static const String rules = 'rules';
+  static const String proxyBypass = 'proxy_bypass';
+  static const String routeExclude = 'route_exclude';
+  static const List<String> all = [capture, systemProxy, tun, rules, proxyBypass, routeExclude];
+  static const List<String> defaults = [capture, systemProxy, tun, rules];
+}
+
+/// 首页能放的入口
+abstract class HomeShortcut {
+  static const String addProfile = 'add_profile';
+  static const String profiles = 'profiles';
+  static const String connections = 'connections';
+  static const String networkCheck = 'network_check';
+  static const String speedTest = 'speed_test';
+  static const String ruleCheck = 'rule_check';
+  static const String logs = 'logs';
+  static const String statistics = 'statistics';
+  static const String dns = 'dns';
+  static const String backup = 'backup';
+  static const List<String> all = [
+    addProfile,
+    profiles,
+    connections,
+    networkCheck,
+    speedTest,
+    ruleCheck,
+    logs,
+    statistics,
+    dns,
+    backup,
+  ];
+  static const List<String> defaults = [addProfile, connections, networkCheck, speedTest];
+}
+
 /// 连接相关的设置
 class CoreSettings {
   String? activeProfileId;
@@ -459,6 +498,9 @@ class CoreSettings {
 
   /// 总开关：是否使用机场的分流规则，配置里选了保留才有
   bool providerRulesEnabled;
+
+  /// 机场分流组改过的去向：配置 id -> 组名 -> 去向
+  Map<String, Map<String, String>> providerTargets;
 
   /// Windows：是否走 TUN（需要管理员权限）。iOS 始终走 TUN
   bool tun;
@@ -539,6 +581,11 @@ class CoreSettings {
 
   /// 首页显示的数字，按这个顺序
   List<String> homeStats;
+  List<String> homeSwitches;
+  List<String> homeShortcuts;
+
+  /// 和当前配置一起用的其他配置，它们的节点合在一起
+  List<String> alsoEnabledProfiles;
 
   /// 这次连接开始的时间。存下来：iOS 的隧道可能比 App 活得久
   DateTime? connectedAt;
@@ -614,6 +661,7 @@ class CoreSettings {
     this.mode = RouteMode.rule,
     this.capture = false,
     this.providerRulesEnabled = true,
+    Map<String, Map<String, String>>? providerTargets,
     this.tun = false,
     this.systemProxy = true,
     this.systemProxyActive = false,
@@ -652,6 +700,9 @@ class CoreSettings {
     this.autoBackupOnRemove = false,
     this.webDavDownload = DownloadStrategy.preferDirect,
     List<String>? homeStats,
+    List<String>? homeSwitches,
+    List<String>? homeShortcuts,
+    List<String>? alsoEnabledProfiles,
     this.connectedAt,
     this.ruleCheckDomain = 'google.com',
     Set<String>? disabledNodes,
@@ -688,6 +739,10 @@ class CoreSettings {
         region = region ?? _systemRegion(),
         tuning = tuning ?? NodeTuning(),
         homeStats = homeStats ?? [HomeStat.speed],
+        homeSwitches = homeSwitches ?? [...HomeSwitch.defaults],
+        homeShortcuts = homeShortcuts ?? [...HomeShortcut.defaults],
+        alsoEnabledProfiles = alsoEnabledProfiles ?? [],
+        providerTargets = providerTargets ?? {},
         disabledNodes = disabledNodes ?? {},
         recentNodes = recentNodes ?? [],
         searchKeywords = searchKeywords ?? [],
@@ -729,6 +784,9 @@ class CoreSettings {
         mode: RouteMode.values.asNameMap()[json['mode']] ?? RouteMode.rule,
         capture: json['capture'] ?? false,
         providerRulesEnabled: json['providerRulesEnabled'] ?? true,
+        providerTargets: (json['providerTargets'] as Map?)?.map(
+          (key, value) => MapEntry(key.toString(), (value as Map).map((k, v) => MapEntry(k.toString(), v.toString()))),
+        ),
         tun: json['tun'] ?? false,
         systemProxy: json['systemProxy'] ?? true,
         systemProxyActive: json['systemProxyActive'] ?? false,
@@ -767,6 +825,9 @@ class CoreSettings {
         autoBackupOnRemove: json['autoBackupOnRemove'] ?? false,
         webDavDownload: DownloadStrategy.values.asNameMap()[json['webDavDownload']] ?? DownloadStrategy.preferDirect,
         homeStats: (json['homeStats'] as List?)?.map((e) => e.toString()).toList(),
+        homeSwitches: (json['homeSwitches'] as List?)?.map((e) => e.toString()).toList(),
+        homeShortcuts: (json['homeShortcuts'] as List?)?.map((e) => e.toString()).toList(),
+        alsoEnabledProfiles: (json['alsoEnabledProfiles'] as List?)?.map((e) => e.toString()).toList(),
         connectedAt: DateTime.tryParse(json['connectedAt'] ?? ''),
         ruleCheckDomain: json['ruleCheckDomain'] ?? 'google.com',
         disabledNodes: (json['disabledNodes'] as List?)?.map((e) => e.toString()).toSet(),
@@ -809,6 +870,7 @@ class CoreSettings {
         'mode': mode.name,
         'capture': capture,
         'providerRulesEnabled': providerRulesEnabled,
+        'providerTargets': providerTargets,
         'tun': tun,
         'systemProxy': systemProxy,
         'systemProxyActive': systemProxyActive,
@@ -847,6 +909,9 @@ class CoreSettings {
         'autoBackupOnRemove': autoBackupOnRemove,
         'webDavDownload': webDavDownload.name,
         'homeStats': homeStats,
+        'homeSwitches': homeSwitches,
+        'homeShortcuts': homeShortcuts,
+        'alsoEnabledProfiles': alsoEnabledProfiles,
         'connectedAt': connectedAt?.toIso8601String(),
         'ruleCheckDomain': ruleCheckDomain,
         'disabledNodes': disabledNodes.toList(),

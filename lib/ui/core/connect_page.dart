@@ -4,16 +4,20 @@ import 'package:flutter/material.dart';
 import 'package:proxypin/core/core_config.dart';
 import 'package:proxypin/core/core_manager.dart';
 import 'package:proxypin/core/core_platform.dart';
+import 'package:proxypin/core/core_settings.dart';
 import 'package:proxypin/core/profile.dart';
 import 'package:proxypin/core/rule_group.dart';
 import 'package:proxypin/core/windows_autostart.dart';
 import 'package:proxypin/network/bin/configuration.dart';
 import 'package:proxypin/network/components/host_filter.dart';
 
+import 'backup_page.dart';
 import 'connections_page.dart';
 import 'design.dart';
+import 'dns_page.dart';
 import 'format.dart';
 import 'home_stats.dart';
+import 'logs_pages.dart';
 import 'profile_options.dart';
 import 'profiles_page.dart';
 import 'tools_pages.dart';
@@ -52,6 +56,8 @@ class HomePage extends StatelessWidget {
               ],
               const SizedBox(height: AppTheme.gap),
               _shortcuts(context, manager),
+              const SizedBox(height: 4),
+              _editHome(context),
             ];
             final banner = [
               if (manager.needsReload) ...[
@@ -120,20 +126,36 @@ class HomePage extends StatelessWidget {
   }
 
   Widget _switches(BuildContext context, CoreManager manager) {
+    final rows = manager.settings.homeSwitches.map((id) => _switchRow(context, manager, id)).nonNulls.toList();
+    return rows.isEmpty ? const SizedBox.shrink() : Panel(children: rows);
+  }
+
+  Widget? _switchRow(BuildContext context, CoreManager manager, String id) {
     final settings = manager.settings;
-    final count = HostFilter.whitelist.list.length;
-    return Panel(children: [
-      InfoRow(
-        icon: Icons.lock_open,
-        iconColor: Tone.good,
-        title: 'HTTPS 解密',
-        subtitle: count == 0 ? '还没有要解密的域名' : '$count 个域名',
-        chevron: false,
-        onTap: () => onOpenTab?.call(3),
-        trailing: Switch(value: settings.capture, onChanged: manager.setCapture),
-      ),
-      if (Platform.isWindows) ...[
-        SwitchRow(
+    switch (id) {
+      case HomeSwitch.capture:
+        final count = HostFilter.whitelist.list.length;
+        return InfoRow(
+          icon: Icons.lock_open,
+          iconColor: Tone.good,
+          title: 'HTTPS 解密',
+          subtitle: count == 0 ? '还没有要解密的域名' : '$count 个域名',
+          chevron: false,
+          onTap: () => onOpenTab?.call(3),
+          trailing: Switch(value: settings.capture, onChanged: manager.setCapture),
+        );
+      case HomeSwitch.rules:
+        return InfoRow(
+          icon: Icons.alt_route,
+          iconColor: Theme.of(context).colorScheme.primary,
+          title: '分流',
+          subtitle: '${settings.groups.where((e) => e.enabled).length} 组规则',
+          onTap: () => onOpenTab?.call(2),
+        );
+    }
+    if (!Platform.isWindows) return null;
+    return switch (id) {
+      HomeSwitch.systemProxy => SwitchRow(
           icon: Icons.settings_ethernet,
           iconColor: Tone.teal,
           title: '系统代理',
@@ -141,7 +163,7 @@ class HomePage extends StatelessWidget {
           value: settings.systemProxy && !settings.tun,
           onChanged: settings.tun ? null : manager.setSystemProxy,
         ),
-        SwitchRow(
+      HomeSwitch.tun => SwitchRow(
           icon: Icons.vpn_lock_outlined,
           iconColor: Tone.violet,
           title: 'TUN 模式',
@@ -149,15 +171,32 @@ class HomePage extends StatelessWidget {
           value: settings.tun,
           onChanged: (value) => _setTun(context, manager, value),
         ),
-      ],
-      InfoRow(
-        icon: Icons.alt_route,
-        iconColor: Theme.of(context).colorScheme.primary,
-        title: '分流',
-        subtitle: '${settings.groups.where((e) => e.enabled).length} 组规则',
-        onTap: () => onOpenTab?.call(2),
-      ),
-    ]);
+      HomeSwitch.proxyBypass => SwitchRow(
+          icon: Icons.alt_route_outlined,
+          iconColor: Tone.warn,
+          title: '允许绕过系统代理',
+          subtitle: '${settings.bypassDomains.length} 条域名',
+          value: settings.proxyBypass,
+          onChanged: (value) {
+            settings.proxyBypass = value;
+            manager.applySettings();
+          },
+        ),
+      HomeSwitch.routeExclude => SwitchRow(
+          icon: Icons.call_split,
+          iconColor: Tone.bad,
+          title: 'TUN 排除路由',
+          subtitle: '排除的地址段不进 TUN',
+          value: settings.tunSettings.routeExclude,
+          onChanged: settings.tun
+              ? (value) {
+                  settings.tunSettings.routeExclude = value;
+                  manager.applySettings();
+                }
+              : null,
+        ),
+      _ => null,
+    };
   }
 
   Future<void> _setTun(BuildContext context, CoreManager manager, bool value) async {
@@ -176,17 +215,47 @@ class HomePage extends StatelessWidget {
     await manager.applySettings();
   }
 
-  Widget _shortcuts(BuildContext context, CoreManager manager) {
+  static const int _shortcutsPerRow = 4;
+
+  _Shortcut? _shortcut(BuildContext context, CoreManager manager, String id) {
     final running = manager.isRunning;
+    VoidCallback open(Widget page) => () => _open(context, page);
+    VoidCallback? whenRunning(Widget page) => running ? open(page) : null;
+    return switch (id) {
+      HomeShortcut.addProfile => _Shortcut(Icons.add_circle_outline, '添加配置', open(const AddProfilePage())),
+      HomeShortcut.profiles => _Shortcut(Icons.folder_open_outlined, '我的配置', open(const ProfilesPage())),
+      HomeShortcut.connections => _Shortcut(Icons.lan_outlined, '连接', whenRunning(ConnectionsPage(configuration: configuration))),
+      HomeShortcut.networkCheck => _Shortcut(Icons.health_and_safety_outlined, '网络检测', open(const NetworkCheckPage())),
+      HomeShortcut.speedTest => _Shortcut(Icons.speed, '测速', whenRunning(const SpeedTestPage())),
+      HomeShortcut.ruleCheck => _Shortcut(Icons.rule, '规则检测', whenRunning(const RuleCheckPage())),
+      HomeShortcut.logs => _Shortcut(Icons.article_outlined, '日志', whenRunning(const LogsPage())),
+      HomeShortcut.statistics => _Shortcut(Icons.bar_chart, '统计', open(const StatisticsPage())),
+      HomeShortcut.dns => _Shortcut(Icons.dns_outlined, 'DNS', open(const DnsPage())),
+      HomeShortcut.backup => _Shortcut(Icons.cloud_sync_outlined, '备份', open(BackupPage(configuration: configuration))),
+      _ => null,
+    };
+  }
+
+  Widget _shortcuts(BuildContext context, CoreManager manager) {
+    final items = manager.settings.homeShortcuts.map((id) => _shortcut(context, manager, id)).nonNulls.toList();
+    if (items.isEmpty) return const SizedBox.shrink();
     return Panel(padding: const EdgeInsets.symmetric(vertical: 6), children: [
-      Row(children: [
-        _Shortcut(Icons.add_circle_outline, '添加配置', () => _open(context, const AddProfilePage())),
-        _Shortcut(Icons.lan_outlined, '连接',
-            running ? () => _open(context, ConnectionsPage(configuration: configuration)) : null),
-        _Shortcut(Icons.health_and_safety_outlined, '网络检测', () => _open(context, const NetworkCheckPage())),
-        _Shortcut(Icons.speed, '测速', running ? () => _open(context, const SpeedTestPage()) : null),
-      ]),
+      for (var start = 0; start < items.length; start += _shortcutsPerRow)
+        Row(children: [
+          for (var index = start; index < start + _shortcutsPerRow; index++)
+            index < items.length ? items[index] : const Spacer(),
+        ]),
     ]);
+  }
+
+  Widget _editHome(BuildContext context) {
+    return Center(
+      child: TextButton.icon(
+        onPressed: () => _open(context, const HomeStatsPage()),
+        icon: const Icon(Icons.dashboard_customize_outlined, size: 16),
+        label: const Text('编辑首页'),
+      ),
+    );
   }
 }
 

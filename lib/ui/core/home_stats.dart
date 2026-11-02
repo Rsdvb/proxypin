@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:io';
+import 'dart:math' as math;
 import 'dart:ui' show FontFeature;
 
 import 'package:flutter/material.dart';
@@ -36,6 +38,10 @@ class _HomeStatsState extends State<HomeStats> with WidgetsBindingObserver {
   Timer? _timer;
   int _ticks = 0;
   TrafficSample _sample = const TrafficSample(0, 0);
+
+  /// 最近一分钟的速度，画曲线用
+  static const int _speedHistory = 60;
+  final List<TrafficSample> _speeds = [];
   ConnectionSnapshot? _snapshot;
   String? _outbound;
   String? _outboundFor;
@@ -57,7 +63,12 @@ class _HomeStatsState extends State<HomeStats> with WidgetsBindingObserver {
   void _resume() {
     if (_stats.contains(HomeStat.speed)) {
       _traffic ??= _manager.api.traffic().listen((sample) {
-        if (mounted) setState(() => _sample = sample);
+        if (!mounted) return;
+        setState(() {
+          _sample = sample;
+          _speeds.add(sample);
+          if (_speeds.length > _speedHistory) _speeds.removeAt(0);
+        });
       }, onError: (_) {});
     }
     if (_stats.contains(HomeStat.runtime) || _needsSnapshot) {
@@ -141,7 +152,6 @@ class _HomeStatsState extends State<HomeStats> with WidgetsBindingObserver {
           '总流量',
           snapshot == null ? '--' : '↑ ${formatBytes(snapshot.uploadTotal)}\n↓ ${formatBytes(snapshot.downloadTotal)}',
         ),
-      HomeStat.speed => _Tile('速度', '↑ ${formatBytes(_sample.up)}/s\n↓ ${formatBytes(_sample.down)}/s'),
       HomeStat.memory => _Tile('内存', snapshot == null ? '--' : formatBytes(snapshot.memory)),
       HomeStat.outboundIp => _Tile(
           '出口 IP',
@@ -160,19 +170,112 @@ class _HomeStatsState extends State<HomeStats> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     final tiles = _stats.map(_tile).nonNulls.toList();
-    if (tiles.isEmpty) return const SizedBox.shrink();
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        const gap = AppTheme.gap;
-        final width = (constraints.maxWidth - gap) / 2;
-        return Wrap(
-          spacing: gap,
-          runSpacing: gap,
-          children: [for (final tile in tiles) SizedBox(width: width, child: tile)],
-        );
-      },
-    );
+    final speed = _stats.contains(HomeStat.speed);
+    if (tiles.isEmpty && !speed) return const SizedBox.shrink();
+    return Column(children: [
+      if (speed) _SpeedCard(_sample, _speeds),
+      if (speed && tiles.isNotEmpty) const SizedBox(height: AppTheme.gap),
+      if (tiles.isNotEmpty)
+        LayoutBuilder(
+          builder: (context, constraints) {
+            const gap = AppTheme.gap;
+            final width = (constraints.maxWidth - gap) / 2;
+            return Wrap(
+              spacing: gap,
+              runSpacing: gap,
+              children: [for (final tile in tiles) SizedBox(width: width, child: tile)],
+            );
+          },
+        ),
+    ]);
   }
+}
+
+/// 当前速度和最近一分钟的曲线
+class _SpeedCard extends StatelessWidget {
+  static const Color _downColor = Tone.teal;
+
+  final TrafficSample sample;
+  final List<TrafficSample> history;
+
+  const _SpeedCard(this.sample, this.history);
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.primary;
+    final style = Theme.of(context).textTheme.titleSmall?.copyWith(fontFeatures: const [FontFeature.tabularFigures()]);
+    Widget rate(IconData icon, Color color, int value) => Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(icon, size: 15, color: color),
+          const SizedBox(width: 4),
+          Flexible(child: Text('${formatBytes(value)}/s', maxLines: 1, overflow: TextOverflow.ellipsis, style: style)),
+        ]);
+
+    return Panel(padding: const EdgeInsets.fromLTRB(14, 12, 14, 12), children: [
+      Row(children: [
+        SizedBox(
+          width: 124,
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            rate(Icons.arrow_upward, accent, sample.up),
+            const SizedBox(height: 8),
+            rate(Icons.arrow_downward, _downColor, sample.down),
+          ]),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: SizedBox(
+            height: 50,
+            child: CustomPaint(painter: _SpeedPainter(history, up: accent, down: _downColor)),
+          ),
+        ),
+      ]),
+    ]);
+  }
+}
+
+class _SpeedPainter extends CustomPainter {
+  final List<TrafficSample> history;
+  final Color up;
+  final Color down;
+
+  /// 新数据从右边进来，画布按满一分钟算
+  static const int _slots = 60;
+
+  _SpeedPainter(this.history, {required this.up, required this.down});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (history.length < 2) return;
+    final peak = history.fold<int>(1, (top, e) => math.max(top, math.max(e.up, e.down)));
+    void draw(int Function(TrafficSample) value, Color color) {
+      final step = size.width / (_slots - 1);
+      final start = size.width - step * (history.length - 1);
+      final line = Path();
+      for (final (index, sample) in history.indexed) {
+        final x = start + step * index;
+        final y = size.height - size.height * value(sample) / peak * 0.92;
+        index == 0 ? line.moveTo(x, y) : line.lineTo(x, y);
+      }
+      final area = Path.from(line)
+        ..lineTo(size.width, size.height)
+        ..lineTo(start, size.height)
+        ..close();
+      canvas.drawPath(area, Paint()..color = color.withValues(alpha: 0.12));
+      canvas.drawPath(
+        line,
+        Paint()
+          ..color = color
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.6
+          ..strokeJoin = StrokeJoin.round,
+      );
+    }
+
+    draw((e) => e.down, down);
+    draw((e) => e.up, up);
+  }
+
+  @override
+  bool shouldRepaint(_SpeedPainter old) => true;
 }
 
 class _Tile extends StatelessWidget {
@@ -194,7 +297,7 @@ class _Tile extends StatelessWidget {
         onTap: onTap,
         onLongPress: onLongPress,
         child: ConstrainedBox(
-          // 速度占两行，其余一行，高度要一样才排得齐
+          // 总流量占两行，其余一行，高度要一样才排得齐
           constraints: const BoxConstraints(minHeight: 82, minWidth: double.infinity),
           child: Padding(
             padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
@@ -210,16 +313,20 @@ class _Tile extends StatelessWidget {
   }
 }
 
-/// 选首页显示哪些数字，拖动调整顺序
-class HomeStatsPage extends StatefulWidget {
+/// 编辑首页：开关、数字和入口各放哪些，拖动调整顺序
+class HomeStatsPage extends StatelessWidget {
   const HomeStatsPage({super.key});
 
-  @override
-  State<HomeStatsPage> createState() => _HomeStatsPageState();
-}
+  static const Map<String, String> _switchLabels = {
+    HomeSwitch.capture: 'HTTPS 解密',
+    HomeSwitch.systemProxy: '系统代理',
+    HomeSwitch.tun: 'TUN 模式',
+    HomeSwitch.rules: '分流',
+    HomeSwitch.proxyBypass: '允许绕过系统代理',
+    HomeSwitch.routeExclude: 'TUN 排除路由',
+  };
 
-class _HomeStatsPageState extends State<HomeStatsPage> {
-  static const Map<String, String> _labels = {
+  static const Map<String, String> _statLabels = {
     HomeStat.runtime: '运行时长',
     HomeStat.connections: '连接数',
     HomeStat.traffic: '总流量',
@@ -228,50 +335,119 @@ class _HomeStatsPageState extends State<HomeStatsPage> {
     HomeStat.outboundIp: '出口 IP',
   };
 
-  final CoreManager _manager = CoreManager.instance;
+  static const Map<String, String> _shortcutLabels = {
+    HomeShortcut.addProfile: '添加配置',
+    HomeShortcut.profiles: '我的配置',
+    HomeShortcut.connections: '连接',
+    HomeShortcut.networkCheck: '网络检测',
+    HomeShortcut.speedTest: '测速',
+    HomeShortcut.ruleCheck: '规则检测',
+    HomeShortcut.logs: '日志',
+    HomeShortcut.statistics: '统计',
+    HomeShortcut.dns: 'DNS',
+    HomeShortcut.backup: '备份',
+  };
 
-  /// 选中的在前，按用户排的顺序；没选的跟在后面
-  late final List<String> _order = [
-    ..._manager.settings.homeStats,
-    ...HomeStat.all.where((e) => !_manager.settings.homeStats.contains(e)),
-  ];
-
-  void _save() => _manager.saveHomeStats(_order.where(_manager.settings.homeStats.contains).toList());
+  /// iOS 始终走 TUN，也没有系统代理
+  static const Set<String> _windowsOnly = {
+    HomeSwitch.systemProxy,
+    HomeSwitch.tun,
+    HomeSwitch.proxyBypass,
+    HomeSwitch.routeExclude,
+  };
 
   @override
   Widget build(BuildContext context) {
-    final settings = _manager.settings;
-    return Scaffold(
-      appBar: AppBar(title: const Text('首页显示')),
-      body: Column(children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-          child: Text('连接后显示在首页底部。选得越多，刷新越频繁。长按拖动调整顺序。', style: Theme.of(context).textTheme.bodySmall),
+    final manager = CoreManager.instance;
+    final settings = manager.settings;
+    return AppPage(title: '编辑首页', children: [
+      _HomeSection(
+        title: '开关',
+        items: {
+          for (final entry in _switchLabels.entries)
+            if (Platform.isWindows || !_windowsOnly.contains(entry.key)) entry.key: entry.value,
+        },
+        chosen: settings.homeSwitches,
+        onChanged: (value) {
+          settings.homeSwitches = value;
+          manager.saveHomeLayout();
+        },
+      ),
+      _HomeSection(
+        title: '数字',
+        hint: '连接后显示。选得越多，刷新越频繁',
+        items: _statLabels,
+        chosen: settings.homeStats,
+        onChanged: manager.saveHomeStats,
+      ),
+      _HomeSection(
+        title: '入口',
+        items: _shortcutLabels,
+        chosen: settings.homeShortcuts,
+        onChanged: (value) {
+          settings.homeShortcuts = value;
+          manager.saveHomeLayout();
+        },
+      ),
+    ]);
+  }
+}
+
+class _HomeSection extends StatefulWidget {
+  final String title;
+  final String? hint;
+  final Map<String, String> items;
+  final List<String> chosen;
+  final ValueChanged<List<String>> onChanged;
+
+  const _HomeSection({required this.title, this.hint, required this.items, required this.chosen, required this.onChanged});
+
+  @override
+  State<_HomeSection> createState() => _HomeSectionState();
+}
+
+class _HomeSectionState extends State<_HomeSection> {
+  late final Set<String> _chosen = widget.chosen.toSet();
+
+  /// 选中的在前，按用户排的顺序；没选的跟在后面
+  late final List<String> _order = [
+    ...widget.chosen.where(widget.items.containsKey),
+    ...widget.items.keys.where((e) => !widget.chosen.contains(e)),
+  ];
+
+  void _save() => widget.onChanged(_order.where(_chosen.contains).toList());
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      SectionLabel(widget.title, hint: widget.hint),
+      Material(
+        color: Palette.of(context).panel,
+        borderRadius: BorderRadius.circular(AppTheme.radius),
+        clipBehavior: Clip.antiAlias,
+        child: ReorderableListView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: _order.length,
+          onReorder: (oldIndex, newIndex) {
+            setState(() => _order.insert(newIndex > oldIndex ? newIndex - 1 : newIndex, _order.removeAt(oldIndex)));
+            _save();
+          },
+          itemBuilder: (context, index) {
+            final item = _order[index];
+            return CheckboxListTile(
+              key: ValueKey(item),
+              controlAffinity: ListTileControlAffinity.leading,
+              title: Text(widget.items[item]!),
+              value: _chosen.contains(item),
+              onChanged: (value) {
+                setState(() => value == true ? _chosen.add(item) : _chosen.remove(item));
+                _save();
+              },
+            );
+          },
         ),
-        Expanded(
-          child: ReorderableListView.builder(
-            itemCount: _order.length,
-            onReorder: (oldIndex, newIndex) {
-              setState(() => _order.insert(newIndex > oldIndex ? newIndex - 1 : newIndex, _order.removeAt(oldIndex)));
-              _save();
-            },
-            itemBuilder: (context, index) {
-              final stat = _order[index];
-              return CheckboxListTile(
-                key: ValueKey(stat),
-                title: Text(_labels[stat]!),
-                value: settings.homeStats.contains(stat),
-                onChanged: (value) {
-                  setState(() {
-                    settings.homeStats = value == true ? [...settings.homeStats, stat] : (settings.homeStats.where((e) => e != stat).toList());
-                  });
-                  _save();
-                },
-              );
-            },
-          ),
-        ),
-      ]),
-    );
+      ),
+    ]);
   }
 }

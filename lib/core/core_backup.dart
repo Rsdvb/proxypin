@@ -44,6 +44,7 @@ class CoreBackup {
   /// 恢复时属于“配置和节点”的设置
   static const Set<String> profileFields = {
     'activeProfileId',
+    'alsoEnabledProfiles',
     'selectedNodes',
     'favorites',
     'recentNodes',
@@ -59,6 +60,7 @@ class CoreBackup {
     'hideDisabledGroups',
     'privateDirect',
     'providerRulesEnabled',
+    'providerTargets',
     'finalTarget',
     'chain',
     'chainFront',

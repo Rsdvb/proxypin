@@ -257,6 +257,8 @@ void main() {
 
   group('choosing stats', () {
     testWidgets('ticking adds, unticking removes', (tester) async {
+      tester.view.physicalSize = const Size(2400, 6000);
+      addTearDown(tester.view.resetPhysicalSize);
       await tester.pumpWidget(const MaterialApp(home: HomeStatsPage()));
 
       await tester.tap(find.text('内存'));

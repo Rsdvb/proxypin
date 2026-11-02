@@ -194,6 +194,33 @@ class CoreTools {
     ];
   }
 
+  /// 量一项检查的耗时。抛异常算失败，错误文本留给用户看
+  static Future<CheckResult> timed(String name, Future<String> Function() check) => _timed(name, check);
+
+  /// TCP 能不能连上，不发数据
+  static Future<String> tcpReach(String host, int port) async {
+    final socket = await Socket.connect(host, port, timeout: _timeout);
+    final address = socket.remoteAddress.address;
+    socket.destroy();
+    return address;
+  }
+
+  static Future<String> resolve(String domain) async {
+    final addresses = await InternetAddress.lookup(domain);
+    return addresses.take(3).map((e) => e.address).join('、');
+  }
+
+  /// 经代理访问，返回状态码
+  static Future<String> httpStatus(String url, String proxy) => _status(url, proxy);
+
+  /// 检测结果写成文本，用来复制给别人看
+  static String describeChecks(List<CheckResult> results) => [
+        for (final result in results)
+          '${result.passed ? '通过' : '失败'}  ${result.name}'
+              '${result.elapsed == null ? '' : '  ${result.elapsed!.inMilliseconds} ms'}'
+              '${result.detail == null || result.detail!.isEmpty ? '' : '  ${result.detail}'}',
+      ].join('\n');
+
   static Future<CheckResult> _timed(String name, Future<String> Function() check) async {
     final stopwatch = Stopwatch()..start();
     try {

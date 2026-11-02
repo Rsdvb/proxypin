@@ -134,7 +134,7 @@ class _MobileCaptureViewState extends State<MobileCaptureView> with WidgetsBindi
         ],
       ),
       body: Column(children: [
-        CaptureStatusBar(configuration: _server.configuration),
+        CaptureStatusBar(configuration: _server.configuration, proxyServer: _server),
         Expanded(
           child: RequestListWidget(
             key: MobileApp.requestStateKey,
